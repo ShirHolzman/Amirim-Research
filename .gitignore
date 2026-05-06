@@ -1,0 +1,31 @@
+# ── Individual subject data files (large volume; regenerable from source) ──────
+my_code/EDA_set/schedule_4/
+my_code/EDA_set/schedule_5/
+my_code/EDA_set/schedule_7/
+my_code/Training_set/
+my_code/Test_set/
+my_code/schedule_0/
+
+# ── Generated output data files (CSV; regenerable by running the wrapper) ──────
+my_code/catie_results/*.csv
+
+# ── Competition analysis source (lives in its own separate repository) ─────────
+Data_resources/competition_analysis-main/
+
+# ── Restricted participant data (not for public sharing) ──────────────────────
+Data_resources/COMPETITION_data_restricted/
+
+# ── Python virtual environments ───────────────────────────────────────────────
+.venv/
+__pycache__/
+*.pyc
+
+# ── MATLAB auto-save and temp files ───────────────────────────────────────────
+*.asv
+*.m~
+*.mex*
+
+# ── OS artefacts ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
