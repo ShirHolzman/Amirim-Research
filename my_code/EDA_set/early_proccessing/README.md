@@ -64,11 +64,20 @@ python sanitize.py          # produces ../cleaned_eda_data.csv
 python Verification_script.py  # produces cleaned_eda_master.csv
 ```
 
-A Python virtual environment (`.venv/`) is provided but excluded from version
-control. Re-create it with:
+A shared Python virtual environment lives at the **project root** (`.venv/`,
+excluded from version control). Activate it before running any script:
 
-```bash
+```powershell
+# From anywhere in the project
+.venv\Scripts\Activate.ps1          # PowerShell (Windows)
+# or
+.venv\Scripts\activate.bat          # cmd.exe
+```
+
+To re-create the venv from scratch:
+
+```powershell
 python -m venv .venv
-.venv\Scripts\activate      # Windows
-pip install pandas numpy
+.venv\Scripts\Activate.ps1
+pip install pandas numpy scipy matplotlib seaborn
 ```
