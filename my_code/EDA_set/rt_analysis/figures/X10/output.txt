@@ -1,0 +1,32 @@
+============================================================
+RT vs. CATIE Choice Probability — EDA SET Analysis
+============================================================
+
+Loading: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\processing\eda_with_catie_probabilities.csv
+Loaded 49,200 rows | 492 subjects | 100 trials each
+Schedules: ['schedule_4', 'schedule_5', 'schedule_7']
+
+── Descriptive Statistics (RT_zscore) ─────────────────────────────
+Category              n     mean      std      SEM  95% CI lower  95% CI upper
+Surprise          2,944   0.0418   1.0242   0.0189        0.0048        0.0789
+Routine          34,201   0.0203   1.0172   0.0055        0.0095        0.0311
+Autopilot        12,055  -0.0678   0.9180   0.0084       -0.0841       -0.0514
+
+── Welch's t-tests (Bonferroni corrected, k=3) ─────────────────────
+Comparison                            t      p (raw)    p (Bonf.)   Cohen d  Sig?
+---------------------------------------------------------------------------------
+Surprise vs Routine               1.097     2.73e-01     8.19e-01    0.0211  n.s.
+Surprise vs Autopilot             5.309     1.16e-07     3.49e-07    0.1127   ***
+Routine vs Autopilot              8.796     1.51e-18     4.54e-18    0.0909   ***
+
+── Saving figures ──────────────────────────────────────────────────
+  fig1_bar_chart.png
+  fig2_kde_overlay.png
+  fig3_scatter_trend.png
+  fig4_schedule_bars.png
+  fig5_trial_trajectory.png
+
+All figures saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\rt_analysis\figures\X10
+Console output saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\rt_analysis\figures\X10\output.txt
+
+Done.

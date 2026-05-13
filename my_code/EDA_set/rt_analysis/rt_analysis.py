@@ -3,14 +3,30 @@ rt_analysis.py
 ==============
 RT vs. CATIE choice-probability analysis for the EDA SET.
 
+Threshold parameter
+-------------------
+Set X (integer, 1–49) to control the category boundaries:
+    Surprise  = catie_choice_probability < X/100
+    Autopilot = catie_choice_probability > 1 - X/100
+    Routine   = everything in between
+
+Example: X=10 → Surprise p < 0.10, Autopilot p > 0.90
+         X=5  → Surprise p < 0.05, Autopilot p > 0.95
+
+Each X value writes its output to its own sub-folder:
+    figures/X{X}/fig1_bar_chart.png
+    figures/X{X}/fig2_kde_overlay.png
+    figures/X{X}/fig3_scatter_trend.png
+    figures/X{X}/fig4_schedule_bars.png
+    figures/X{X}/fig5_trial_trajectory.png
+    figures/X{X}/output.txt   ← full console output for this run
+
 Hypothesis
 ----------
-Trials on which CATIE is "surprised" (catie_choice_probability < 0.05) should
-show longer reaction times because the participant paused to consciously
-reconsider their choice pattern.  Trials where CATIE is highly confident
-(catie_choice_probability > 0.95) should show shorter reaction times because
-the participant is acting on autopilot and simply waiting out the 1.5-second
-hardware lock before clicking.
+Trials on which CATIE is surprised (p < X/100) should show longer reaction
+times because the participant paused to consciously reconsider their pattern.
+Trials where CATIE is highly confident (p > 1 - X/100) should show shorter
+reaction times because the participant is acting on autopilot.
 
 The analysis uses RT_zscore (reaction time normalised within each participant)
 so that individual baseline differences cancel out.
@@ -19,17 +35,12 @@ Run
 ---
     cd my_code/EDA_set/rt_analysis
     python rt_analysis.py
-
-Output: figures/fig1_bar_chart.png/svg  — mean RT_zscore ± SEM per category
-        figures/fig2_kde_overlay.png/svg — RT_zscore distributions per category
-        figures/fig3_scatter_trend.png/svg — scatter + linear + LOWESS trendlines
-        figures/fig4_schedule_bars.png/svg — staircase replicated per schedule
-        figures/fig5_trial_trajectory.png/svg — RT_zscore evolution across session
 """
 
 # ── 0. Imports and configuration ─────────────────────────────────────────────
 
 import pathlib
+import sys
 import warnings
 
 import numpy as np
@@ -39,18 +50,44 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns
 
+# ── Threshold parameter ───────────────────────────────────────────────────────
+# Change X to shift all category boundaries simultaneously.
+# X=10 → Surprise p < 0.10, Autopilot p > 0.90
+# X=5  → Surprise p < 0.05, Autopilot p > 0.95
+X = 10
+
+SURPRISE_MAX  = X / 100    
+AUTOPILOT_MIN = 1 - X / 100
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 DATA_PATH = (
     pathlib.Path(__file__).parent.parent
     / "processing"
     / "eda_with_catie_probabilities.csv"
 )
-OUT_DIR = pathlib.Path(__file__).parent / "figures"
-OUT_DIR.mkdir(exist_ok=True)
+# Each X value gets its own sub-folder
+OUT_DIR = pathlib.Path(__file__).parent / "figures" / f"X{X}"
+OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ── Category thresholds ───────────────────────────────────────────────────────
-SURPRISE_MAX  = 0.05   # p < 0.05  → "surprise / high attention"
-AUTOPILOT_MIN = 0.95   # p > 0.95  → "autopilot / habitual"
+# ── Tee stdout → console + output.txt ────────────────────────────────────────
+class _Tee:
+    """Write to multiple streams simultaneously, with safe encoding fallback."""
+    def __init__(self, *streams):
+        self._streams = streams
+    def write(self, text):
+        for s in self._streams:
+            try:
+                s.write(text)
+            except UnicodeEncodeError:
+                enc = getattr(s, "encoding", "utf-8") or "utf-8"
+                s.write(text.encode(enc, errors="replace").decode(enc))
+            s.flush()
+    def flush(self):
+        for s in self._streams:
+            s.flush()
+
+_log_file = open(OUT_DIR / "output.txt", "w", encoding="utf-8")
+sys.stdout = _Tee(sys.__stdout__, _log_file)
 
 # ── Ordered category labels (short form used in code; display form in plots) ─
 CAT_SURPRISE  = "Surprise"
@@ -59,9 +96,9 @@ CAT_AUTOPILOT = "Autopilot"
 CAT_ORDER = [CAT_SURPRISE, CAT_ROUTINE, CAT_AUTOPILOT]
 
 CAT_LABELS = {
-    CAT_SURPRISE:  f"Surprise\n(p < {SURPRISE_MAX})",
-    CAT_ROUTINE:   f"Routine\n({SURPRISE_MAX} ≤ p ≤ {AUTOPILOT_MIN})",
-    CAT_AUTOPILOT: f"Autopilot\n(p > {AUTOPILOT_MIN})",
+    CAT_SURPRISE:  f"Surprise\n(p < {SURPRISE_MAX:.2f})",
+    CAT_ROUTINE:   f"Routine\n({SURPRISE_MAX:.2f} ≤ p ≤ {AUTOPILOT_MIN:.2f})",
+    CAT_AUTOPILOT: f"Autopilot\n(p > {AUTOPILOT_MIN:.2f})",
 }
 
 PALETTE = {
@@ -169,12 +206,16 @@ print(header)
 print("-" * len(header))
 
 test_results = {}
+# For each 2 different catagories combinations:
 for cat_a, cat_b in COMPARISONS:
-    a = desc[cat_a]["data"].values
+    # extract each catagory data
+    a = desc[cat_a]["data"].values 
     b = desc[cat_b]["data"].values
-    if len(a) < 2 or len(b) < 2:
+    if len(a) < 2 or len(b) < 2: 
+        #Edge case: for Welch's  T-test we need at least 2 items in each group
         warnings.warn(f"Skipping {cat_a} vs {cat_b}: insufficient data.")
         continue
+    # Welch's T-test 
     t_stat, p_raw = stats.ttest_ind(a, b, equal_var=False)
     p_bonf = min(p_raw * N_COMPARISONS, 1.0)
     d = cohens_d(a, b)
@@ -205,9 +246,11 @@ ax1.axhline(0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
 for bar, n in zip(bars, ns):
     h = bar.get_height()
     if h >= 0:
-        y, va = h + 0.003, "bottom"   # label just above tip of positive bar
+        # Positive bar: label just inside the base, near the 0 line
+        y, va = 0.003, "bottom"
     else:
-        y, va = h - 0.003, "top"      # label just below tip of negative bar
+        # Negative bar: label just inside the base, near the 0 line
+        y, va = -0.003, "top"
     ax1.text(bar.get_x() + bar.get_width() / 2, y,
              f"n={n:,}", ha="center", va=va, fontsize=9, color="#333333")
 
@@ -381,11 +424,16 @@ figures = {
 
 print("\n── Saving figures ──────────────────────────────────────────────────")
 for name, fig in figures.items():
-    for ext in ("png", "svg"):
-        path = OUT_DIR / f"{name}.{ext}"
-        fig.savefig(path, dpi=150, bbox_inches="tight")
-    print(f"  {name}.png / .svg")
+    path = OUT_DIR / f"{name}.png"
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"  {name}.png")
 
 print(f"\nAll figures saved to: {OUT_DIR}")
+print(f"Console output saved to: {OUT_DIR / 'output.txt'}")
 print("\nDone.")
+
+# Restore stdout and close the log file before showing plots
+sys.stdout = sys.__stdout__
+_log_file.close()
+
 plt.show()

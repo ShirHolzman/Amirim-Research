@@ -1,0 +1,80 @@
+==============================================================
+CATIE Surprise Point Analysis
+==============================================================
+
+Loading: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\processing\eda_with_catie_probabilities.csv
+Loaded 49,200 rows
+
+-- Engineering historical features...
+  Features engineered: 14
+
+-- Surprise Points (p < 0.15)
+   Total trials   : 49,200
+   Surprise trials: 4,454  (9.1%)
+   Baseline trials: 44,746  (90.9%)
+
+-- Descriptive Comparison: Surprise vs Baseline
+   (Bonferroni k=14)
+
+Feature                      Mean(Surp) Mean(Base)  Cohen_d     p_corr
+----------------------------------------------------------------------
+prev_side_switch                 1.0000     0.3012   2.1539 0.0000e+00  ***
+recent_switch_rate               0.6003     0.3552   0.8539 0.0000e+00  ***
+streak_same_choice               1.0000     6.8452  -0.7455 0.0000e+00  ***
+streak_same_side                 1.0000     6.8452  -0.7455 0.0000e+00  ***
+prev_choice_biased_1             0.8702     0.5781   0.6916 0.0000e+00  ***
+prev_reward_2                    0.1812     0.2859  -0.2492 1.1122e-60  ***
+prev_choice_biased_2             0.4979     0.6181  -0.2437 1.2589e-49  ***
+prev_reward_1                    0.2101     0.2871  -0.1787 4.6999e-31  ***
+trial_number                    53.3776    49.1140   0.1486 3.8611e-20  ***
+catie_p_prev                     0.5645     0.6038  -0.1314 1.2693e-15  ***
+recent_reward_rate               0.2511     0.2786  -0.0994 9.7576e-10  ***
+prev_choice_biased_3             0.6430     0.6065   0.0753 3.1148e-05  ***
+prev_reward_3                    0.2591     0.2716  -0.0283 1.0000e+00    ns
+cumulative_bias_rate             0.6213     0.6168   0.0281 7.8270e-01    ns
+
+-- Random Forest Feature Importance
+   Training on 47,724 rows (dropped NaN-lag rows)
+
+-- Shallow Decision Tree Rules (depth 4)
+|--- streak_same_side <= 1.50
+|   |--- prev_choice_biased_1 <= 0.50
+|   |   |--- catie_p_prev <= 0.83
+|   |   |   |--- prev_reward_1 <= 0.50
+|   |   |   |   |--- class: 0
+|   |   |   |--- prev_reward_1 >  0.50
+|   |   |   |   |--- class: 1
+|   |   |--- catie_p_prev >  0.83
+|   |   |   |--- catie_p_prev <= 0.85
+|   |   |   |   |--- class: 1
+|   |   |   |--- catie_p_prev >  0.85
+|   |   |   |   |--- class: 1
+|   |--- prev_choice_biased_1 >  0.50
+|   |   |--- prev_reward_2 <= 0.50
+|   |   |   |--- catie_p_prev <= 0.85
+|   |   |   |   |--- class: 1
+|   |   |   |--- catie_p_prev >  0.85
+|   |   |   |   |--- class: 1
+|   |   |--- prev_reward_2 >  0.50
+|   |   |   |--- prev_choice_biased_2 <= 0.50
+|   |   |   |   |--- class: 1
+|   |   |   |--- prev_choice_biased_2 >  0.50
+|   |   |   |   |--- class: 1
+|--- streak_same_side >  1.50
+|   |--- prev_reward_1 <= 0.50
+|   |   |--- class: 0
+|   |--- prev_reward_1 >  0.50
+|   |   |--- class: 0
+
+
+-- Saving figures
+  fig1_feature_comparison.png
+  fig2_reward_history_heatmap.png
+  fig3_streak_vs_surprise.png
+  fig4_trial_position.png
+  fig5_prior_catie_confidence.png
+  fig6_rf_feature_importance.png
+
+All figures saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\surprise_analysis\figures
+Console output saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\surprise_analysis\figures\output.txt
+Done.
