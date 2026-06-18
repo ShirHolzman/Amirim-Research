@@ -68,6 +68,7 @@ cumulative_bias_rate             0.6213     0.6168   0.0281 7.8270e-01    ns
 
 
 -- Saving figures
+  fig0_probability_histogram.png
   fig1_feature_comparison.png
   fig2_reward_history_heatmap.png
   fig3_streak_vs_surprise.png

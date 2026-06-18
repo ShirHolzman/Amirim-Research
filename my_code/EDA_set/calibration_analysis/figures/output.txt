@@ -1,0 +1,45 @@
+==============================================================
+CATIE Probability Calibration Analysis
+==============================================================
+
+Loading: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\processing\eda_with_catie_probabilities.csv
+Loaded 49,200 rows
+
+-- Recovered catie_p_biased = P(choose biased option), independent of outcome
+count    49200.000000
+mean         0.583331
+std          0.304431
+min          0.053520
+25%          0.299031
+50%          0.642791
+75%          0.896645
+max          0.950000
+
+-- Reliability Diagram Data (10 bins, dropped bins with n<30)
+ predicted  empirical     n
+  0.077831   0.095238  3003
+  0.158850   0.345400  3674
+  0.254151   0.502010  5721
+  0.315752   0.621133  6852
+  0.498196   0.501761   568
+  0.570889   0.604436  1082
+  0.640664   0.787518  6297
+  0.753483   0.528716  1776
+  0.847252   0.579516  8231
+  0.918485   0.778426 11996
+
+-- High-Confidence Trials (confidence > 0.85)
+   n = 20,022 (40.7% of all trials)
+ predicted  empirical     n
+  0.876789   0.699383  5023
+  0.917707   0.807695 14295
+  0.950000   0.723011   704
+
+-- Saving figures
+  fig1_reliability_diagram.png
+  fig2_confidence_by_trial_schedule.png
+  fig3_high_confidence_shrinkage.png
+
+All figures saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\calibration_analysis\figures
+Console output saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\calibration_analysis\figures\output.txt
+Done.

@@ -158,6 +158,21 @@ print(f"   Total trials   : {n_total:,}")
 print(f"   Surprise trials: {n_surprise:,}  ({pct:.1f}%)")
 print(f"   Baseline trials: {n_baseline:,}  ({100-pct:.1f}%)")
 
+# ── Section 3b — Figure 0: Probability distribution histogram ────────────────
+
+fig0, ax0 = plt.subplots(figsize=(8, 4.5))
+ax0.hist(df["catie_choice_probability"], bins=50, color="#4c72b0", edgecolor="white")
+ax0.axvline(SURPRISE_THRESHOLD, color="#d62728", linestyle="--", linewidth=1.5)
+ymax = ax0.get_ylim()[1]
+ax0.axvspan(0, SURPRISE_THRESHOLD, color="#d62728", alpha=0.12)
+ax0.text(SURPRISE_THRESHOLD / 2, ymax * 0.92,
+         f"Surprise\nn={n_surprise:,} ({pct:.1f}%)",
+         ha="center", va="top", color="#d62728", fontsize=10, fontweight="bold")
+ax0.set_xlabel("CATIE choice probability (probability assigned to the actual choice)")
+ax0.set_ylabel("Trial count")
+ax0.set_title(f"Distribution of CATIE's Predicted Probability Across All Trials (n={n_total:,})")
+fig0.tight_layout()
+
 # ── Section 4 — Descriptive comparison (Welch t-test per feature) ─────────────
 
 print("\n-- Descriptive Comparison: Surprise vs Baseline")
@@ -353,6 +368,7 @@ fig5.tight_layout()
 
 print("\n-- Saving figures")
 figure_map = {
+    "fig0_probability_histogram":  fig0,
     "fig1_feature_comparison":     fig1,
     "fig2_reward_history_heatmap": fig2,
     "fig3_streak_vs_surprise":     fig3,
