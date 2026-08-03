@@ -2,7 +2,20 @@
   "permissions": {
     "allow": [
       "Bash(git commit -m ' *)",
-      "Bash(./.venv/Scripts/python.exe -c ' *)"
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(timeout 1200 ./.venv/Scripts/python.exe my_code/catie_calibration/golden_test.py)"
     ]
+  },
+  "enabledPlugins": {
+    "model-architecture@ai-research-skills": true,
+    "mechanistic-interpretability@ai-research-skills": true,
+    "data-processing@ai-research-skills": true,
+    "post-training@ai-research-skills": true,
+    "distributed-training@ai-research-skills": true,
+    "optimization@ai-research-skills": true,
+    "emerging-techniques@ai-research-skills": true,
+    "ml-paper-writing@ai-research-skills": true,
+    "ideation@ai-research-skills": true,
+    "agent-native-research-artifact@ai-research-skills": true
   }
 }

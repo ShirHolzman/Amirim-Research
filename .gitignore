@@ -9,6 +9,12 @@ my_code/schedule_0/
 # ── Generated output data files (CSV; regenerable by running the wrapper) ──────
 my_code/catie_results/*.csv
 
+# ── catie_calibration derived data (regenerable: sanitize_splits.py, build_cache) ─
+my_code/catie_calibration/data/
+my_code/catie_calibration/cache/
+my_code/catie_calibration/**/*.csv.gz
+# matlab/results/*.csv are small (<400KB) and kept tracked as evidence
+
 # ── Competition analysis source (lives in its own separate repository) ─────────
 Data_resources/competition_analysis-main/
 
