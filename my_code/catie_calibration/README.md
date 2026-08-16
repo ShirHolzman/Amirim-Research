@@ -20,8 +20,9 @@ catie_calibration/
 ├── sanitize_splits.py    raw subject CSVs -> one tidy CSV per split
 ├── golden_test.py        BLOCKING correctness gate (run this first)
 ├── data/                 generated, gitignored
-├── 01_bug_correction/    Phase 1 -- the published likelihood bug
-├── 02_mode_calibration/  Phase 2 -- which partition explains the miscalibration
+├── matlab/               independent MATLAB validation -- see matlab/README.md
+├── 01_bug_correction/    Phase 1 -- the published likelihood bug (done)
+├── 02_mode_calibration/  Phase 2 -- which partition explains the miscalibration (done)
 ├── 03_parameter_fitting/ Phase 3 -- re-fitting vs post-hoc calibration
 ├── 04_model_extension/   Phase 4 -- asymmetric inertia, lapse, soft CA
 └── 05_nn_ceiling/        Phase 5 -- how much predictable structure remains
@@ -34,6 +35,33 @@ python my_code/catie_calibration/golden_test.py        # must pass before anythi
 python my_code/catie_calibration/sanitize_splits.py    # builds data/cleaned_*.csv
 python my_code/catie_calibration/01_bug_correction/bug_benchmark.py
 ```
+
+## Correctness -- what's actually been checked
+
+`golden_test.py` and `matlab/` together give five independent layers of validation,
+not one check repeated five times:
+
+1. The `"published"` port reproduces the stored MATLAB CSV end-to-end (2.2e-15).
+2. A from-scratch, single-pass monolithic reimplementation (`golden_test.py`,
+   `_reference_catie_probability`) that never splits state from parameters agrees
+   with the production split (`state_tensors` + `probability_from_state`), for
+   both modes and all three `k` values (3.3e-16).
+3. `mode_contributions()`'s four terms sum to `probability_from_state()`'s output
+   (3.3e-16) -- checked at runtime, not just true by algebraic construction.
+4. A second, completely independent implementation -- a minimally-patched copy of
+   the real MATLAB source, run in real MATLAB, not Python -- reproduces every
+   published-vs-fixed E[p]/E[log p] number exactly across all 3,328 subjects
+   (`matlab/README.md` §1).
+5. `state_tensors()`'s individual outputs (`H`, `b`, `c_prev`, `s_prev`,
+   `sbar_prev`, `g`) match MATLAB's own internal loop variables **element by
+   element** -- not just the final probability -- across all 998,400 trials in
+   the sanitized population (`matlab/README.md` §2). Exact match (0.0) on the
+   boolean/integer tensors, one ULP (5.55e-16) on the floating-point ones.
+
+Layer 5 is the one worth knowing about specifically: layers 1-4 all compare final
+probabilities, so a pair of bugs inside the state recursion that happened to
+cancel out could in principle survive all four. Layer 5 compares the intermediate
+values those bugs would have to hide in, which closes that gap.
 
 Dependencies: `pandas numpy scipy matplotlib scikit-learn` (all present in the repo
 `.venv`). No `torch`, no GPU — see "Why no autodiff" below.
@@ -83,8 +111,10 @@ p_exp    = ε · (1 + s_prev + s̄_prev) / 3
 So parameter fitting is vectorised arithmetic over cached tensors, not backprop through
 a recurrence. Only `K` alters the state recursion, and it is handled by enumeration.
 `state_tensors()` computes the data-only part; `probability_from_state()` applies
-parameters. The direct-port path calls exactly those two functions in sequence, so the
-cached path cannot silently diverge from the port.
+parameters. This split was cross-checked against an independent monolithic
+implementation and against MATLAB's own internal variables — see "Correctness" above —
+not just assumed correct because the production code always calls the two functions in
+sequence.
 
 ## Closed directions — do not reopen
 

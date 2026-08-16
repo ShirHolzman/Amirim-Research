@@ -50,6 +50,7 @@ import numpy as np
 
 # Published parameters (Plonsky & Erev 2017, fitted on Erev et al. 2010; reported in
 # Dan, Plonsky & Loewenstein 2025 p.8 as tau=0.29, eps=0.30, phi=0.71, K=2).
+# See CATIE_single_schedule_score.m:4
 TAU = 0.29
 EPSILON = 0.30
 PHI = 0.71
@@ -284,6 +285,32 @@ def probability_from_state(state, tau=TAU, epsilon=EPSILON, phi=PHI, phi_2=None,
     return p1
 
 
+def mode_weights(state, tau=TAU, epsilon=EPSILON, phi=PHI):
+    """Prior probability of each of CATIE's four regimes being the one that
+    generates this trial's choice, BEFORE conditioning on what the choice
+    actually was. Sums to 1 for every trial except trial 1 (probability_from_state
+    hardcodes p=0.5 there, outside the mode cascade entirely).
+
+    Structurally parallel to mode_contributions(): for each regime i,
+        mode_contributions(state)[i] == mode_weights(state)[i] * P(alt 1 | regime i)
+    with P(alt1 | heuristic)=b, P(alt1 | exploration)=0.5, P(alt1 | inertia)=c_prev,
+    P(alt1 | contingent)=g. This decomposition is what makes a genuine Bayesian
+    responsibility posterior possible (see 02_mode_calibration/ for the E-step that
+    uses it) -- mode_contributions alone only supports a mass-attribution toward
+    "chose alt 1", which is a deterministic function of c_prev for the inertia term
+    (identically 0 whenever c_prev==0) and therefore cannot be used to ask "which
+    regime actually explains the choice that was made" without that confound.
+    """
+    p_exp = epsilon * (1.0 + state.s_prev + state.sbar_prev) / 3.0
+    th = tau * state.H
+    rest = 1.0 - th
+    w_heuristic = th
+    w_exploration = rest * p_exp
+    w_inertia = rest * (1.0 - p_exp) * phi
+    w_contingent = rest * (1.0 - p_exp) * (1.0 - phi)
+    return w_heuristic, w_exploration, w_inertia, w_contingent
+
+
 def mode_contributions(state, tau=TAU, epsilon=EPSILON, phi=PHI):
     """Exact additive decomposition of P(alt 1) into its four modal terms.
 
@@ -341,13 +368,20 @@ def catie_hetero(rewards_1, rewards_2, is_choice_1, mode="fixed", ks=(0, 1, 2),
     return (p_mix, P) if return_agents else p_mix
 
 
-def mix_agents(P, is_choice_1, weighting="published"):
+def mix_agents(P, is_choice_1, weighting="published", return_weights=False):
     """Combine per-k P(alt 1) matrices into the heterogeneous mixture.
 
     P : (n_agents, n_trials) array of P(alt 1).
 
     The MATLAB accumulates likelihoods of the CHOICES ACTUALLY MADE, so P must be
     converted to choice-probability space before the cumprod.
+
+    return_weights=True additionally returns W, the (n_agents, n_trials) per-trial
+    normalised posterior weight matrix (columns sum to 1) used to build the mixture.
+    Exposed so that other per-agent quantities (e.g. the mode-responsibility
+    posterior in 02_mode_calibration/) can be mixed with the EXACT same weights
+    this function uses internally, rather than recomputing this cumprod and
+    risking silent drift between two copies of the same logic.
     """
     c = np.asarray(is_choice_1, dtype=bool)
     P_choice = np.where(c[None, :], P, 1.0 - P)
@@ -356,10 +390,12 @@ def mix_agents(P, is_choice_1, weighting="published"):
     W = L / L.sum(axis=0, keepdims=True)
     W = W[:, :-1]
     if weighting == "published":
-        return (P.T @ W).mean(axis=1)
+        mixed = (P.T @ W).mean(axis=1)
     elif weighting == "per_trial":
-        return (P * W).sum(axis=0)
-    raise ValueError(f"unknown weighting {weighting!r}")
+        mixed = (P * W).sum(axis=0)
+    else:
+        raise ValueError(f"unknown weighting {weighting!r}")
+    return (mixed, W) if return_weights else mixed
 
 
 def p_of_observed_choice(p_alt1, is_choice_1):

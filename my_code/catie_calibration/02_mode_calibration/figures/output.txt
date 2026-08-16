@@ -1,0 +1,162 @@
+==============================================================================
+PHASE 2 -- CONDITIONAL CALIBRATION: WHICH PARTITION EXPLAINS THE GAP?
+==============================================================================
+model: corrected ("fixed") CATIE, k in {0,1,2}, published weighting
+data: EDA + Training + schedule_0 (Test held out for final evaluation)
+
+loaded 2,524 subjects, 252,400 trials, 9 schedules: ['schedule_0', 'schedule_11', 'schedule_2', 'schedule_3', 'schedule_4', 'schedule_5', 'schedule_6', 'schedule_7', 'schedule_9']
+
+computing responsibility posteriors ...
+  [500/2524] subjects processed
+  [1000/2524] subjects processed
+  [1500/2524] subjects processed
+  [2000/2524] subjects processed
+  [2500/2524] subjects processed
+  [2524/2524] subjects processed
+
+responsibility sum-to-1 max deviation: 8.216e-15 (correctness gate)
+
+==============================================================================
+1. HEADLINE METRICS (fixed model, all trials pooled)
+==============================================================================
+   E[p]       0.6340
+   E[log p]   -0.6550
+   ECE        0.1540
+   ECE_q      0.1467
+   MCE        0.2858
+   Brier      0.2260
+   accuracy   0.6666
+   n          249876
+
+   E[p]     = 0.6340  95% CI [0.6294, 0.6385]  (subject-clustered bootstrap)
+   E[log p] = -0.6550  95% CI [-0.6649, -0.6450]
+
+==============================================================================
+2. PUBLISHED vs FIXED, this population (continuity with Phase 1)
+==============================================================================
+   E[p]      fixed 0.6340  published 0.6213  diff +0.0127  p=7.062e-281 ***
+   E[log p]  fixed -0.6550  published -0.6676  diff +0.0127  p=2.307e-122 ***
+   (headline conclusion of this chapter is not sensitive to which model is used --
+    see fig_published_vs_fixed_gap comparison below)
+
+==============================================================================
+3. THE CENTRAL ARITHMETIC -- calibration gap conditional on c_prev
+==============================================================================
+   (re-derived on the k-mixture, all three non-held-out splits --
+    planning-phase numbers used a single k=2 agent on EDA only)
+ c_prev      n  predicted  empirical       gap
+    0.0  91548   0.249118   0.453751  0.204633
+    1.0 158328   0.848200   0.734564 -0.113636
+
+   aggregate gap: +0.0030  (near-zero: cancellation in the mean)
+   -> errors that cancel in a mean compound in a log; this is the arithmetic
+      behind CATIE's E[p]/E[log p] split decision.
+
+==============================================================================
+4. PARTITION ADJUDICATION (R^2 of the calibration gap, PROSPECTIVE only)
+==============================================================================
+   soft_argmax is excluded here -- see section 5 for why, and for its
+   legitimate (retrospective) use instead.
+
+                partition  n_groups       R2  R2_increment_over_c_prev
+        c_prev (baseline)         2 0.104064                  0.000000
+hard_argmax (prospective)         4 0.120527                  0.016463
+                 schedule         9 0.000372                 -0.103692
+           trial_quintile         5 0.002143                 -0.101920
+               streak_bin         5 0.005156                 -0.098908
+          reward_rate_bin         3 0.000774                 -0.103290
+        c_prev x schedule        18 0.109982                  0.005918
+     c_prev x hard_argmax         4 0.120527                  0.016463
+
+==============================================================================
+5. HARD vs SOFT MODE ATTRIBUTION
+==============================================================================
+   OLD (planning-phase) method: hard argmax over mass toward 'choosing alt1'.
+   Forced to equal c_prev exactly for the inertia regime (its contribution is
+   phi*c_prev, identically 0 when c_prev=0) -- not an empirical finding.
+
+   P(c_prev=1 | hard_argmax):
+                mean   count
+hard_argmax                 
+contingent_avg   0.0   68872
+exploration      0.0   19296
+heuristic        0.0    3380
+inertia          1.0  158328
+
+   NEW method: Bayesian responsibility posterior. Genuinely NOT forced to
+   be deterministic in c_prev (see responsibility.py) -- confirmed below.
+
+   P(c_prev=1 | soft_argmax):
+                    mean   count
+soft_argmax                     
+contingent_avg  0.299182   53322
+exploration     0.890224   22546
+heuristic       0.779683    7698
+inertia         0.699309  166310
+
+   BUT: the responsibility posterior is computed FROM the observed choice
+   y(t) (resp_r(t) uses y(t) to pick contribution_r(t) vs weight_r(t)-
+   contribution_r(t)) -- so soft_argmax is RETROSPECTIVE, not a forecasting
+   partition, and must not be scored the way c_prev/hard_argmax are.
+   Direct proof: within every single (c_prev, soft_argmax) cell, does
+   chose_biased come out exactly 0 or 1 (i.e. does the label recover y(t)
+   outright)?
+
+                       mean   count
+c_prev soft_argmax                 
+0.0    contingent_avg   1.0   37369
+       exploration      1.0    2475
+       heuristic        1.0    1696
+       inertia          0.0   50008
+1.0    contingent_avg   0.0   15953
+       exploration      0.0   20071
+       heuristic        0.0    6002
+       inertia          1.0  116302
+
+   every cell mean in {0, 1}: True  -- confirmed circular, as expected
+
+   soft_argmax's legitimate use is therefore RETROSPECTIVE ERROR ATTRIBUTION:
+   'of the choices CATIE got most wrong, which regime's implicit confidence
+   was responsible' -- see section 7. It cannot be used as-is to improve a
+   real-time forecast, and its R^2-of-gap-explained is not reported, because
+   it would not mean what a reader would assume it means.
+
+==============================================================================
+6. PER-SCHEDULE METRIC SUITE
+==============================================================================
+   schedule     E[p]  E[log p]      ECE    ECE_q      MCE    Brier  accuracy     n
+ schedule_0 0.680225 -0.578710 0.140160 0.134643 0.333843 0.197406  0.707071 54351
+ schedule_2 0.605458 -0.701775 0.169788 0.171427 0.271912 0.245350  0.629361 53262
+ schedule_3 0.664195 -0.590246 0.147657 0.147498 0.363883 0.198780  0.719135 60093
+ schedule_4 0.597259 -0.734627 0.188019 0.185819 0.288521 0.257167  0.617971 19899
+ schedule_5 0.659642 -0.612877 0.159719 0.158083 0.385895 0.208260  0.698806 17424
+ schedule_6 0.585740 -0.744613 0.182260 0.182397 0.278301 0.261394  0.608305 14256
+ schedule_7 0.581012 -0.769566 0.205351 0.207639 0.333480 0.270520  0.600615 11385
+ schedule_9 0.568673 -0.764068 0.179810 0.180962 0.235055 0.269068  0.594260 10593
+schedule_11 0.570448 -0.765743 0.183199 0.180068 0.246316 0.269495  0.595263  8613
+
+==============================================================================
+7. RETROSPECTIVE ERROR ATTRIBUTION BY DOMINANT MODE (soft posterior)
+==============================================================================
+   NOT a calibration partition (see section 5) -- 'predicted' and 'empirical'
+   below describe trials grouped by which regime the E-step attributes the
+   REALISED choice to, useful for asking 'when CATIE is wrong, which regime's
+   implicit confidence estimate is responsible', which is what Phase 4's model
+   extensions need to target. Not usable to improve a real-time forecast.
+
+   soft_argmax      n  predicted  empirical       gap
+contingent_avg  53322   0.437200   0.700818  0.263618
+   exploration  22546   0.816096   0.109776 -0.706320
+     heuristic   7698   0.585468   0.220317 -0.365151
+       inertia 166310   0.666713   0.699309  0.032595
+
+==============================================================================
+FIGURES
+==============================================================================
+  fig1_reliability_aggregate_vs_cprev.png
+  fig2_r2_partition_comparison.png
+  fig3_reliability_by_soft_mode.png
+  fig4_ece_by_schedule.png
+  fig5_hard_vs_soft_attribution.png
+
+done.
