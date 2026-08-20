@@ -51,6 +51,20 @@ combined using the EXACT SAME per-trial weight matrix W that catie_core.mix_agen
 uses internally to mix P(alt 1) (obtained via mix_agents(..., return_weights=True),
 not recomputed here), so responsibility and probability mixing cannot silently
 diverge from each other.
+
+CAVEAT ON "PROSPECTIVE" -- read before calling anything here history-only.
+Under weighting="published" the k-mixture weight is w_bar = W.mean(axis=1), the
+TIME-AVERAGE over all 100 trials of the sequential k-posterior. It therefore
+depends on y(t) and on every choice AFTER t. This is inherited faithfully from the
+published MATLAB (hetro.m:25), not introduced here, and it means p_alt1 -- and
+anything derived from it, including the hard-argmax mode attribution -- is not
+strictly a function of history alone. It is a weak dependence, and quantified:
+recomputing everything with causal per-trial weights instead changes the
+hard_argmax label on 1.04% of trials, moves mean |delta p_alt1| by 0.0099
+(max 0.206), shifts the headline c_prev gaps from +0.2046/-0.1136/+0.0030 to
++0.2080/-0.1133/+0.0044, and moves R^2(c_prev) from 0.1041 to 0.1056. Conclusions
+are robust to it; the word "prospective" is nonetheless an approximation and is
+used in that sense throughout Phase 2.
 """
 
 from __future__ import annotations

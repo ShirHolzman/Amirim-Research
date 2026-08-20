@@ -208,10 +208,13 @@ def main() -> int:
     print("   none. A non-zero count here would falsify the whole account above.\n")
     up = dn = tot = 0
     for sid, d in choices.groupby("subject_id", sort=False):
-        c1 = d["chose_biased"].to_numpy().astype(bool)
+        # NB: named `choices_1`, not `c1` -- `c1` is the c_prev==1 DataFrame in the
+        # enclosing scope (used above to build x1). Shadowing it worked only because
+        # x0/x1 are captured before this loop; one edit away from a silent bug.
+        choices_1 = d["chose_biased"].to_numpy().astype(bool)
         p = catie_hetero(d["biased_reward"].to_numpy(), d["unbiased_reward"].to_numpy(),
-                         c1, mode="published")
-        cp = np.concatenate([[np.nan], c1[:-1].astype(float)])
+                         choices_1, mode="published")
+        cp = np.concatenate([[np.nan], choices_1[:-1].astype(float)])
         m = ~np.isnan(cp)
         m[0] = False
         up += int(((cp == 0) & (p > 0.5) & m).sum())

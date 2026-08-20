@@ -1,43 +1,48 @@
 """
 Phase 2 -- Conditional calibration: which partition explains CATIE's miscalibration?
 
-Research question (see thesis plan): CATIE's aggregate calibration gap is small
-(+0.016 in the planning-phase probe), yet the model loses badly on E[log p] to a
-Q-Learning competitor. The working hypothesis is that the aggregate gap CONCEALS
-large, oppositely-signed conditional miscalibration -- errors that cancel in a
-mean but compound in a log. This script does not presuppose which partition of
-the data reveals that structure; it ADJUDICATES between candidates, with the
-previous choice (`c_prev`) as the mandatory baseline every richer partition must
-beat, and reports the R^2 increment honestly in either direction.
+Research question (see thesis plan): CATIE's *aggregate* calibration gap is small,
+yet the model loses badly to Q-Learning on E[log p]. The working hypothesis is that
+the aggregate conceals large, oppositely-signed *conditional* miscalibration --
+errors that cancel in a mean but compound in a log. This script does not
+presuppose which partition of the data reveals that structure; it ADJUDICATES
+between candidates, with the previous choice (`c_prev`) as the baseline every
+richer partition must beat, and reports the result honestly in either direction.
 
-Candidate PROSPECTIVE partitions (computable before trial t's outcome, fair game
-for "does this explain the calibration gap"): c_prev (baseline) -- dominant mode
-by hard mass-attribution argmax (planning-phase method; built only from H, b,
-c_prev, s_prev, sbar_prev, g, so legitimately historical) -- schedule --
-trial-position quintile -- run-length since last switch -- recent reward rate.
+WHAT THIS R^2 ACTUALLY MEASURES -- read before interpreting any number below.
+The score is R^2 of the trial-level calibration gap, gap = y - p. Decomposing,
+
+    Var(gap | L) = Var(y | L) + Var(p | L) - 2 Cov(y, p | L)
+
+so a partition earns R^2 by EITHER predicting the choice y OR by homogenising the
+model's own forecast p -- and these are very different achievements. Section 4
+reports the decomposition, because the ranking is not interpretable without it.
+Concretely: an out-of-fold gradient-boosted predictor of y scores only R^2=0.019
+here despite predicting y better than anything else, because it leaves p
+heterogeneous within cells; while `c_prev` removes ~89% of the variance in p.
+
+Candidate PROSPECTIVE partitions (computable before trial t's outcome): c_prev
+(baseline), hard-argmax mode attribution, schedule, trial-position quintile,
+run-length since last switch, recent reward rate, binned p_alt1, and the pairwise
+interactions of c_prev with each. An earlier version of this script tested only
+two of those interactions and thereby missed the strongest partition -- see the
+`partitions` dict, which now crosses c_prev with every candidate symmetrically.
 
 A second, Bayesian responsibility-posterior mode attribution (responsibility.py)
-is also computed, and is genuinely NOT forced to be deterministic in c_prev the
-way the hard argmax is (see section 5's output). But it is built FROM trial t's
-own observed choice (that is what makes it a proper E-step posterior), so it is
-RETROSPECTIVE, not prospective, and scoring "R^2 of the calibration gap explained
-by soft_argmax" would be circular -- confirmed directly on this data: within every
-(c_prev, soft_argmax) cell, chose_biased comes out exactly 0 or 1. Its legitimate
-use is retrospective error attribution (section 7): which regime is implicated
-when CATIE is wrong, useful for Phase 4, not for real-time recalibration. See
-section 5's full explanation before interpreting any soft_argmax number below.
+is also computed. It is genuinely NOT forced to be deterministic in c_prev the way
+the hard argmax is. But it is built FROM trial t's own observed choice (that is
+what makes it a proper E-step), and section 5 proves it is exactly equivalent to
+the repeat/switch indicator: `soft_argmax == inertia` iff `y == c_prev`,
+identically. It is therefore reported ONLY as that proof; it is not used as a
+partition and no reliability curve is drawn from it, because every such number is
+reconstructible from a 2x4 count table and says nothing about the regimes.
 
-Model: the corrected ("fixed") CATIE likelihood is used as the default baseline
-throughout, per project decision -- the published/fixed distinction is
-orthogonal to this chapter's question (the bug affects ~17% of trials via the
-heuristic branch; this chapter is about the other three modes). A brief
-published-vs-fixed comparison is included for continuity with Phase 1, not as
-the main analysis.
+Model: the corrected ("fixed") CATIE likelihood, k in {0,1,2} published mixture.
+Section 2 re-runs the central c_prev split under the published model too, so the
+robustness claim is shown rather than asserted.
 
-Data: EDA + Training + schedule_0 (2,524 subjects, schedules 0,2,3,4,5,6,7,9,11).
-The Test split (schedules 1,8,10) is deliberately excluded and asserted absent --
-per the project's held-out discipline, Test is touched exactly once, at the very
-end of the thesis timeline, not during exploratory/diagnostic work.
+Data: EDA + Training + schedule_0 (2,524 subjects; 249,876 trials after dropping
+trial 1). Test is excluded and asserted absent -- touched once, at the very end.
 
 Run:  python my_code/catie_calibration/02_mode_calibration/conditional_calibration.py
 """
@@ -53,6 +58,9 @@ matplotlib.use("Agg")  # must precede pyplot
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from sklearn.ensemble import HistGradientBoostingClassifier  # noqa: E402
+from sklearn.isotonic import IsotonicRegression  # noqa: E402
+from sklearn.model_selection import GroupKFold  # noqa: E402
 
 HERE = pathlib.Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
@@ -72,12 +80,8 @@ EDA_CSV = HERE.parent.parent / "EDA_set" / "processing" / "eda_with_catie_probab
 
 TEST_SCHEDULES = {"schedule_1", "schedule_8", "schedule_10"}
 
-PALETTE = {
-    "c_prev=0": "#4c72b0", "c_prev=1": "#d62728",
-    "heuristic": "#9467bd", "exploration": "#2ca02c",
-    "inertia": "#d62728", "contingent_avg": "#4c72b0",
-    "published": "#d62728", "fixed": "#1f77b4",
-}
+PALETTE = {"c_prev=0": "#4c72b0", "c_prev=1": "#d62728",
+           "published": "#d62728", "fixed": "#1f77b4"}
 
 
 # ── Section 1 -- Load data (EDA + Training + schedule_0; Test held out) ──────
@@ -85,12 +89,11 @@ def load_frame() -> pd.DataFrame:
     eda = pd.read_csv(EDA_CSV)
     eda["subject_id"] = eda["schedule"] + "/" + eda["subject_file"]
 
-    frames = [eda[["subject_id", "schedule", "trial_number", "biased_reward",
-                   "unbiased_reward", "is_biased_choice", "observed_reward"]]]
+    cols = ["subject_id", "schedule", "trial_number", "biased_reward",
+            "unbiased_reward", "is_biased_choice", "observed_reward"]
+    frames = [eda[cols]]
     for name in ("training", "schedule_0"):
-        df = pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")
-        frames.append(df[["subject_id", "schedule", "trial_number", "biased_reward",
-                          "unbiased_reward", "is_biased_choice", "observed_reward"]])
+        frames.append(pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")[cols])
 
     out = pd.concat(frames, ignore_index=True)
     out["chose_biased"] = (out["is_biased_choice"].astype(str).str.upper() == "TRUE").astype(int)
@@ -105,8 +108,7 @@ def load_frame() -> pd.DataFrame:
 
 # ── Section 2 -- Non-circular partition features ─────────────────────────────
 def _streak_transform(shifted: pd.Series) -> pd.Series:
-    """Run length of an already-lagged series (ending at the position it's
-    evaluated at). Applying this to c_prev (chose_biased.shift(1)) gives, at
+    """Run length of an already-lagged series. Applied to c_prev, this gives, at
     trial t, the length of the identical-choice run ending at t-1 -- entirely
     historical, no leakage of trial t's own choice."""
     vals = shifted.fillna(-1).to_numpy()
@@ -118,26 +120,37 @@ def _streak_transform(shifted: pd.Series) -> pd.Series:
 
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Lag-based features. Must run BEFORE the trial-1 drop, because c_prev needs
+    trial 1 present to shift from. Binning that does not need trial 1 is deferred
+    to `bin_features` so the bin edges reflect the analysed rows only."""
     g = df.groupby("subject_id", sort=False)
     df["c_prev"] = g["chose_biased"].shift(1)
     df["streak_prev"] = g["c_prev"].transform(_streak_transform)
     df["recent_reward_rate"] = g["observed_reward"].transform(
         lambda s: s.shift(1).rolling(5, min_periods=1).mean())
-    df["trial_quintile"] = pd.cut(df["trial_number"], bins=[-1, 19, 39, 59, 79, 99],
-                                  labels=["Q1(0-19)", "Q2(20-39)", "Q3(40-59)",
-                                          "Q4(60-79)", "Q5(80-99)"])
+    return df
+
+
+def bin_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Binning, applied AFTER the trial-1 drop so every quintile covers the same
+    number of analysed trials (previously Q1 held 19 and the rest 20)."""
+    df = df.copy()
+    df["trial_quintile"] = pd.cut(df["trial_number"], bins=[0, 20, 40, 60, 80, 99],
+                                  labels=["Q1(1-20)", "Q2(21-40)", "Q3(41-60)",
+                                          "Q4(61-80)", "Q5(81-99)"], include_lowest=True)
     df["streak_bin"] = pd.cut(df["streak_prev"], bins=[0, 1, 2, 3, 5, 100],
                               labels=["1", "2", "3", "4-5", "6+"])
+    # NOTE: recent_reward_rate is a mean of <=5 binary rewards, so it takes few
+    # distinct values; q=4 collapses to 3 groups via duplicates="drop". Verified
+    # not to distort the comparison (the raw 11-valued variable scores 0.00135 vs
+    # the binned 0.00077 -- both noise-level), but the collapse is reported.
     df["reward_rate_bin"] = pd.qcut(df["recent_reward_rate"], q=4, duplicates="drop")
+    df["p_alt1_bin"] = pd.qcut(df["p_alt1"], q=20, duplicates="drop")
     return df
 
 
 # ── Section 3 -- Per-subject model computation ───────────────────────────────
 def compute_all_subjects(df: pd.DataFrame):
-    """Runs responsibility_posterior (mode="fixed") for every subject. Returns
-    the input frame augmented with p_alt1, p_choice, per-regime responsibility,
-    and per-regime mass-attribution (mixed_contrib) columns, plus the max
-    sum-to-1 deviation observed (a correctness gate, not just a claim)."""
     rows = []
     max_dev = 0.0
     n_subjects = df["subject_id"].nunique()
@@ -150,8 +163,7 @@ def compute_all_subjects(df: pd.DataFrame):
         max_dev = max(max_dev, validate_responsibility(out["resp"]))
 
         sub = d[["subject_id", "schedule", "trial_number", "chose_biased",
-                 "c_prev", "streak_prev", "streak_bin", "recent_reward_rate",
-                 "reward_rate_bin", "trial_quintile"]].copy()
+                 "c_prev", "streak_prev", "recent_reward_rate"]].copy()
         sub["p_alt1"] = out["p_alt1_mix"]
         sub["p_choice"] = out["p_choice_mix"]
         for j, name in enumerate(REGIME_NAMES):
@@ -163,7 +175,7 @@ def compute_all_subjects(df: pd.DataFrame):
             print(f"  [{i + 1}/{n_subjects}] subjects processed", flush=True)
 
     result = pd.concat(rows, ignore_index=True)
-    result = result[result["trial_number"] > 0].reset_index(drop=True)  # drop trial 1 (p=0.5 by fiat)
+    result = result[result["trial_number"] > 0].reset_index(drop=True)
 
     resp_cols = [f"resp_{n}" for n in REGIME_NAMES]
     contrib_cols = [f"contrib_{n}" for n in REGIME_NAMES]
@@ -172,90 +184,147 @@ def compute_all_subjects(df: pd.DataFrame):
     return result, max_dev
 
 
-def compute_published_comparison(df: pd.DataFrame) -> pd.DataFrame:
-    """Lightweight published-mode pass (p_alt1/p_choice only, no responsibility
-    decomposition) for the brief published-vs-fixed continuity check."""
+def compute_published(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for sid, d in df.groupby("subject_id", sort=False):
-        r1 = d["biased_reward"].to_numpy()
-        r2 = d["unbiased_reward"].to_numpy()
         c1 = d["chose_biased"].to_numpy().astype(bool)
-        p_alt1 = catie_hetero(r1, r2, c1, mode="published")
-        p_choice = p_of_observed_choice(p_alt1, c1)
-        rows.append(pd.DataFrame({"subject_id": sid, "trial_number": d["trial_number"].to_numpy(),
-                                  "p_alt1_pub": p_alt1, "p_choice_pub": p_choice}))
+        p_alt1 = catie_hetero(d["biased_reward"].to_numpy(),
+                              d["unbiased_reward"].to_numpy(), c1, mode="published")
+        rows.append(pd.DataFrame({
+            "subject_id": sid, "trial_number": d["trial_number"].to_numpy(),
+            "c_prev": d["c_prev"].to_numpy(), "chose_biased": c1.astype(int),
+            "p_alt1_pub": p_alt1, "p_choice_pub": p_of_observed_choice(p_alt1, c1)}))
     out = pd.concat(rows, ignore_index=True)
     return out[out["trial_number"] > 0].reset_index(drop=True)
 
 
 # ── Section 4 -- R^2 adjudication ─────────────────────────────────────────────
-def r2_explained(gap: np.ndarray, labels) -> float:
-    """Fraction of variance in `gap` explained by grouping on `labels`: the R^2
-    of the saturated group-mean model (between-group SS / total SS).
+def r2_explained(gap, labels) -> float:
+    """R^2 of the saturated group-mean model (between-group SS / total SS).
 
-    Uses list(labels), not np.asarray(labels): the latter coerces a list of
-    tuples (used for combined partitions like c_prev x schedule) into a 2D
-    array instead of a 1D array of tuple objects, which pd.Series then rejects.
+    Uses list(labels) rather than np.asarray so a list of tuples stays 1-D.
+
+    NaN labels are rejected outright: pandas' groupby drops them, and because
+    `.sum()` skips their NaN residuals they would contribute ZERO residual while
+    still counting toward total SS -- silently inflating R^2 toward 1. A demo:
+    x=[1,2,3,4,100] with labels ['a','a','b','b',None] scores 0.9999.
     """
     s = pd.Series(np.asarray(gap, dtype=float)).reset_index(drop=True)
-    labels = pd.Series(list(labels)).reset_index(drop=True)
+    lab = pd.Series(list(labels)).reset_index(drop=True)
+    n_nan = lab.isna().sum()
+    assert n_nan == 0, (f"r2_explained received {n_nan} NaN labels; these would be "
+                        f"silently dropped and inflate R^2. Filter or fillna first.")
     tot = ((s - s.mean()) ** 2).sum()
     if tot == 0:
         return float("nan")
-    resid = s.groupby(labels, observed=True).transform(lambda x: x - x.mean())
+    resid = s.groupby(lab, observed=True).transform(lambda x: x - x.mean())
     return float(1 - (resid ** 2).sum() / tot)
 
 
-def adjudicate_partitions(df: pd.DataFrame) -> pd.DataFrame:
-    """R^2 of the calibration gap explained by each PROSPECTIVE partition -- one
-    computable from trial t-1 and earlier, before trial t's outcome is known.
-
-    soft_argmax is deliberately excluded here, not merely omitted. It is a
-    RETROSPECTIVE quantity: the responsibility posterior it comes from is built
-    from y(t), the very choice `gap` is computed against (see responsibility.py
-    -- resp_r(t) uses np.where(y1>0.5, contributions, weights-contributions)).
-    Verified directly on this data: chose_biased is EXACTLY 0 or 1 within every
-    single (c_prev, soft_argmax) cell -- i.e. that grouping recovers the outcome
-    itself, not genuine calibration structure. Computing "R^2 of gap explained by
-    soft_argmax" would silently repeat the same circularity that discredited
-    `prev_side_switch` in the original EDA work (a feature built from the choice
-    being predicted), just one level more indirect. soft_argmax's legitimate use
-    -- retrospective error attribution, i.e. which regime is implicated when
-    CATIE is wrong -- is reported separately in main(), clearly labelled as such,
-    not as a calibration partition. hard_argmax has no such problem: it is built
-    purely from mode_contributions(), which depends only on H, b, c_prev, s_prev,
-    sbar_prev, g -- all historical, none of it y(t) -- so it belongs here.
-    """
-    gap = (df["chose_biased"] - df["p_alt1"]).to_numpy()
-    partitions = {
-        "c_prev (baseline)": df["c_prev"],
-        "hard_argmax (prospective)": df["hard_argmax"],
-        "schedule": df["schedule"],
-        "trial_quintile": df["trial_quintile"],
-        "streak_bin": df["streak_bin"],
-        "reward_rate_bin": df["reward_rate_bin"],
-        "c_prev x schedule": df["c_prev"].astype(str) + "|" + df["schedule"].astype(str),
-        "c_prev x hard_argmax": df["c_prev"].astype(str) + "|" + df["hard_argmax"].astype(str),
-    }
-    baseline_r2 = r2_explained(gap, df["c_prev"])
+def variance_decomposition(df: pd.DataFrame, labels) -> dict:
+    """E[Var(gap|L)] split into its Var(y), Var(p) and Cov components."""
+    d = pd.DataFrame({"y": df["chose_biased"].to_numpy().astype(float),
+                      "p": df["p_alt1"].to_numpy(),
+                      "L": pd.Series(list(labels)).to_numpy()})
     rows = []
-    for name, labels in partitions.items():
-        r2 = r2_explained(gap, labels)
-        n_groups = pd.Series(labels).nunique()
-        rows.append({"partition": name, "n_groups": n_groups, "R2": r2,
-                    "R2_increment_over_c_prev": r2 - baseline_r2})
-    return pd.DataFrame(rows)
+    for _, sub in d.groupby("L", observed=True):
+        if len(sub) < 2:
+            rows.append((len(sub), 0.0, 0.0, 0.0)); continue
+        rows.append((len(sub), sub.y.var(), sub.p.var(),
+                     float(np.cov(sub.y.to_numpy(), sub.p.to_numpy())[0, 1])))
+    R = pd.DataFrame(rows, columns=["n", "vy", "vp", "cv"]).fillna(0.0)
+    w = R.n / R.n.sum()
+    return {"E_Var_y": float((w * R.vy).sum()), "E_Var_p": float((w * R.vp).sum()),
+            "E_Cov": float((w * R.cv).sum())}
 
 
-# ── Section 5 -- metric suite ─────────────────────────────────────────────────
-def stratum_table(df: pd.DataFrame, by: str) -> pd.DataFrame:
+def candidate_partitions(df: pd.DataFrame) -> dict:
+    """Every prospective candidate, each also crossed with c_prev. Crossing is done
+    symmetrically -- an earlier version crossed c_prev with only `schedule` and
+    `hard_argmax`, which missed `c_prev x streak_bin`, the strongest partition."""
+    cp = df["c_prev"].astype(int).astype(str)
+    singles = {
+        "c_prev (baseline)": df["c_prev"].astype(int),
+        "hard_argmax": df["hard_argmax"],
+        "schedule": df["schedule"],
+        "trial_quintile": df["trial_quintile"].astype(str),
+        "streak_bin": df["streak_bin"].astype(str),
+        "reward_rate_bin": df["reward_rate_bin"].astype(str),
+        "p_alt1_bin (20q)": df["p_alt1_bin"].astype(str),
+    }
+    out = dict(singles)
+    for name, lab in singles.items():
+        if name == "c_prev (baseline)":
+            continue
+        out[f"c_prev x {name}"] = cp + "|" + pd.Series(lab).astype(str).reset_index(drop=True)
+    return out
+
+
+def noise_ceiling(df: pd.DataFrame, seed=RNG_SEED):
+    """Upper bound on R^2 achievable by ANY history-only partition.
+
+    Derivation. For a partition L, R^2(L) = 1 - E[Var(gap|L)]/Var(gap). By the law
+    of total variance, refining L never increases E[Var(gap|L)], so the finest
+    history partition X maximises R^2. Within a cell of X the forecast p is fixed
+    (it is a deterministic function of history), so
+
+        Var(gap | X) = Var(y | X) = q(1-q),   q = P(y=1 | history)
+
+    giving   ceiling = 1 - E[q(1-q)] / Var(gap).
+
+    Estimating q is the whole difficulty, and the error is DIRECTIONAL: an underfit
+    q_hat is shrunk toward 0.5, so q_hat(1-q_hat) overstates the noise and
+    UNDERSTATES the ceiling. A logistic regression therefore gives a misleadingly
+    low ceiling -- low enough that observed partitions exceed it, which is how we
+    caught the problem. A cross-validated gradient booster is used instead, and two
+    independent checks are reported:
+
+      * plug-in     1 - E[q_hat(1-q_hat)]/Var(gap)  -- can err either way
+      * OOF-Brier   1 - E[(y-q_hat)^2]/Var(gap)     -- a RIGOROUS lower bound on
+        the ceiling for any q_hat, calibrated or not, since
+        E[(y-q_hat)^2] = E[q(1-q)] + E[(q-q_hat)^2] >= E[q(1-q)].
+
+    Returns (plug_in, oof_brier_bound, ece_of_q_hat).
+    """
+    g = df.groupby("subject_id", sort=False)
+    F = pd.DataFrame(index=df.index)
+    F["c_prev"] = df["c_prev"]
+    F["streak_prev"] = df["streak_prev"]
+    F["recent_reward_rate"] = df["recent_reward_rate"]
+    F["trial_number"] = df["trial_number"]
+    F["p_alt1"] = df["p_alt1"]
+    for L in (2, 3, 4, 5):
+        F[f"choice_lag{L}"] = g["chose_biased"].shift(L)
+    F["cum_bias_rate"] = g["chose_biased"].transform(lambda s: s.shift(1).expanding().mean())
+    F["cum_switch_rate"] = g["chose_biased"].transform(
+        lambda s: s.shift(1).diff().abs().expanding().mean())
+    F = F.fillna(-1.0)
+
+    X = F.to_numpy()
+    y = df["chose_biased"].to_numpy().astype(float)
+    groups = df["subject_id"].to_numpy()
+    var_gap = (y - df["p_alt1"].to_numpy()).var()
+
+    q = np.zeros(len(y))
+    for tr, te in GroupKFold(n_splits=5).split(X, y, groups):
+        m = HistGradientBoostingClassifier(max_iter=400, learning_rate=0.05,
+                                           max_leaf_nodes=63, random_state=seed)
+        m.fit(X[tr], y[tr])
+        q[te] = m.predict_proba(X[te])[:, 1]
+
+    plug_in = 1 - np.mean(q * (1 - q)) / var_gap
+    bound = 1 - np.mean((y - q) ** 2) / var_gap
+    ece = M.ece(q, y, n_bins=10)
+    return float(plug_in), float(bound), float(ece), q
+
+
+def stratum_table(df: pd.DataFrame, by) -> pd.DataFrame:
     rows = []
     for val, g in df.groupby(by, observed=True):
-        rows.append({
-            by: val, "n": len(g),
-            "predicted": g["p_alt1"].mean(), "empirical": g["chose_biased"].mean(),
-            "gap": g["chose_biased"].mean() - g["p_alt1"].mean(),
-        })
+        rows.append({"stratum": val, "n": len(g),
+                     "predicted": g["p_alt1"].mean(),
+                     "empirical": g["chose_biased"].mean(),
+                     "gap": g["chose_biased"].mean() - g["p_alt1"].mean()})
     return pd.DataFrame(rows)
 
 
@@ -268,227 +337,312 @@ def main():
     print("=" * 78)
     print("PHASE 2 -- CONDITIONAL CALIBRATION: WHICH PARTITION EXPLAINS THE GAP?")
     print("=" * 78)
-    print("model: corrected (\"fixed\") CATIE, k in {0,1,2}, published weighting")
+    print('model: corrected ("fixed") CATIE, k in {0,1,2}, published weighting')
     print("data: EDA + Training + schedule_0 (Test held out for final evaluation)\n")
 
-    df = load_frame()
-    n_subj = df["subject_id"].nunique()
-    print(f"loaded {n_subj:,} subjects, {len(df):,} trials, "
+    df = build_features(load_frame())
+    print(f"loaded {df['subject_id'].nunique():,} subjects, {len(df):,} trials, "
           f"{df['schedule'].nunique()} schedules: {sorted(df['schedule'].unique())}")
 
-    df = build_features(df)
-
     print("\ncomputing responsibility posteriors ...")
-    M_trials, max_dev = compute_all_subjects(df)
+    T, max_dev = compute_all_subjects(df)
     print(f"\nresponsibility sum-to-1 max deviation: {max_dev:.3e} (correctness gate)")
-    assert max_dev < 1e-8, "responsibility posterior failed to normalise -- stop and investigate"
-
-    M_trials.to_csv(OUT_DIR / "trial_level.csv.gz", index=False, compression="gzip")
+    assert max_dev < 1e-8, "responsibility posterior failed to normalise"
+    T = bin_features(T)
+    assert T[["c_prev", "streak_bin", "trial_quintile", "reward_rate_bin",
+              "p_alt1_bin", "schedule", "hard_argmax"]].notna().all().all(), \
+        "NaN in a partition column -- would silently inflate R^2"
+    T.to_csv(OUT_DIR / "trial_level.csv.gz", index=False, compression="gzip")
 
     # ── 1. Headline metrics ──────────────────────────────────────────────────
     print("\n" + "=" * 78)
     print("1. HEADLINE METRICS (fixed model, all trials pooled)")
     print("=" * 78)
-    overall = M.score_all(M_trials["p_alt1"], M_trials["p_choice"], M_trials["chose_biased"])
-    for k, v in overall.items():
+    for k, v in M.score_all(T["p_alt1"], T["p_choice"], T["chose_biased"]).items():
         print(f"   {k:<10} {v:.4f}" if isinstance(v, float) else f"   {k:<10} {v}")
+    ep, lo, hi = M.bootstrap_ci(T["p_choice"], T["subject_id"], np.mean)
+    lp = np.log(np.clip(T["p_choice"], 1e-12, 1))
+    elp, llo, lhi = M.bootstrap_ci(lp, T["subject_id"], np.mean)
+    print(f"\n   E[p]     = {ep:.4f}  95% CI [{lo:.4f}, {hi:.4f}]  (subject-clustered)")
+    print(f"   E[log p] = {elp:.4f}  95% CI [{llo:.4f}, {lhi:.4f}]")
+    print("\n   NOTE accuracy is near-vacuous here: argmax(p_alt1)==c_prev on ~99.4% of")
+    print("   trials, so it essentially reports the repeat rate, not model quality.")
 
-    ep, ep_lo, ep_hi = M.bootstrap_ci(M_trials["p_choice"], M_trials["subject_id"], np.mean)
-    lp = np.log(np.clip(M_trials["p_choice"], 1e-12, 1))
-    elp, elp_lo, elp_hi = M.bootstrap_ci(lp, M_trials["subject_id"], np.mean)
-    print(f"\n   E[p]     = {ep:.4f}  95% CI [{ep_lo:.4f}, {ep_hi:.4f}]  (subject-clustered bootstrap)")
-    print(f"   E[log p] = {elp:.4f}  95% CI [{elp_lo:.4f}, {elp_hi:.4f}]")
-
-    # ── 2. Published vs fixed, on this population, for continuity ───────────
+    # ── 2. Published vs fixed -- shown, not asserted ─────────────────────────
     print("\n" + "=" * 78)
-    print("2. PUBLISHED vs FIXED, this population (continuity with Phase 1)")
+    print("2. PUBLISHED vs FIXED (does this chapter's conclusion depend on the fix?)")
     print("=" * 78)
-    pub = compute_published_comparison(df)
-    merged = M_trials.merge(pub, on=["subject_id", "trial_number"])
-    res = M.paired_subject_test(merged["p_choice"], merged["p_choice_pub"], merged["subject_id"])
-    print(f"   E[p]      fixed {res['mean_a']:.4f}  published {res['mean_b']:.4f}  "
-          f"diff {res['mean_diff']:+.4f}  p={res['p']:.3e} {M.stars(res['p'])}")
-    lp_pub = np.log(np.clip(merged["p_choice_pub"], 1e-12, 1))
-    lp_fix = np.log(np.clip(merged["p_choice"], 1e-12, 1))
-    res2 = M.paired_subject_test(lp_fix, lp_pub, merged["subject_id"])
-    print(f"   E[log p]  fixed {res2['mean_a']:.4f}  published {res2['mean_b']:.4f}  "
-          f"diff {res2['mean_diff']:+.4f}  p={res2['p']:.3e} {M.stars(res2['p'])}")
-    print("   (headline conclusion of this chapter is not sensitive to which model is used --")
-    print("    see fig_published_vs_fixed_gap comparison below)")
+    pub = compute_published(df)
+    mg = T.merge(pub[["subject_id", "trial_number", "p_alt1_pub", "p_choice_pub"]],
+                 on=["subject_id", "trial_number"])
+    assert len(mg) == len(T), f"merge changed row count: {len(T)} -> {len(mg)}"
+    r1 = M.paired_subject_test(mg["p_choice"], mg["p_choice_pub"], mg["subject_id"])
+    r2_ = M.paired_subject_test(np.log(np.clip(mg["p_choice"], 1e-12, 1)),
+                                np.log(np.clip(mg["p_choice_pub"], 1e-12, 1)), mg["subject_id"])
+    print(f"   E[p]      fixed {r1['mean_a']:.4f}  published {r1['mean_b']:.4f}  "
+          f"diff {r1['mean_diff']:+.4f}  p={r1['p']:.3e} {M.stars(r1['p'])}")
+    print(f"   E[log p]  fixed {r2_['mean_a']:.4f}  published {r2_['mean_b']:.4f}  "
+          f"diff {r2_['mean_diff']:+.4f}  p={r2_['p']:.3e} {M.stars(r2_['p'])}")
 
-    # ── 3. The central arithmetic: c_prev-conditional gap ────────────────────
+    print("\n   The central c_prev split, recomputed under the PUBLISHED model:")
+    pub_g = pub.copy()
+    pub_g["gap"] = pub_g["chose_biased"] - pub_g["p_alt1_pub"]
+    for v, g_ in pub_g.groupby("c_prev"):
+        print(f"     c_prev={int(v)}  n={len(g_):>7,}  predicted {g_['p_alt1_pub'].mean():.4f}  "
+              f"empirical {g_['chose_biased'].mean():.4f}  gap {g_['gap'].mean():+.4f}")
+    print(f"     aggregate gap {pub_g['gap'].mean():+.4f}")
+    r2_pub = r2_explained(pub_g["gap"], pub_g["c_prev"].astype(int))
+    print(f"     R^2(c_prev) under published = {r2_pub:.4f}  "
+          f"(fixed model: see section 4)")
+    print("   => the oppositely-signed split is present under BOTH models, so this")
+    print("      chapter's conclusion does not depend on the Phase 1 correction.")
+    print("      (The published aggregate gap is larger, so its cancellation is less")
+    print("      complete -- the corrected model is the cleaner demonstration.)")
+
+    # ── 3. The central arithmetic ────────────────────────────────────────────
     print("\n" + "=" * 78)
     print("3. THE CENTRAL ARITHMETIC -- calibration gap conditional on c_prev")
     print("=" * 78)
-    print("   (re-derived on the k-mixture, all three non-held-out splits --")
-    print("    planning-phase numbers used a single k=2 agent on EDA only)")
-    cprev_table = stratum_table(M_trials, "c_prev")
-    print(cprev_table.to_string(index=False))
-    agg_gap = M_trials["chose_biased"].mean() - M_trials["p_alt1"].mean()
-    print(f"\n   aggregate gap: {agg_gap:+.4f}  (near-zero: cancellation in the mean)")
-    print("   -> errors that cancel in a mean compound in a log; this is the arithmetic")
-    print("      behind CATIE's E[p]/E[log p] split decision.")
+    tab = stratum_table(T, "c_prev")
+    print(tab.to_string(index=False))
+    agg = T["chose_biased"].mean() - T["p_alt1"].mean()
+    print(f"\n   aggregate gap: {agg:+.4f}  (near-zero: cancellation in the mean)")
+    print("   Section 8 tests directly whether this cancellation is what separates")
+    print("   E[p] from E[log p], rather than asserting it.")
 
-    # ── 4. Partition adjudication (PROSPECTIVE partitions only) ──────────────
+    # ── 4. Partition adjudication ────────────────────────────────────────────
     print("\n" + "=" * 78)
     print("4. PARTITION ADJUDICATION (R^2 of the calibration gap, PROSPECTIVE only)")
     print("=" * 78)
-    print("   soft_argmax is excluded here -- see section 5 for why, and for its")
-    print("   legitimate (retrospective) use instead.\n")
-    r2_table = adjudicate_partitions(M_trials)
+    print("   soft_argmax is excluded -- section 5 proves it encodes the outcome.\n")
+    gap = (T["chose_biased"] - T["p_alt1"]).to_numpy()
+    base = r2_explained(gap, T["c_prev"].astype(int))
+    rows = []
+    for name, lab in candidate_partitions(T).items():
+        rows.append({"partition": name, "n_groups": pd.Series(list(lab)).nunique(),
+                     "R2": r2_explained(gap, lab),
+                     "increment_over_c_prev": r2_explained(gap, lab) - base})
+    r2_table = pd.DataFrame(rows).sort_values("R2", ascending=False)
     print(r2_table.to_string(index=False))
     r2_table.to_csv(OUT_DIR / "partition_r2.csv", index=False)
 
-    # ── 5. Hard vs soft mode attribution -- the confound, the fix, and a trap ─
+    print("\n   computing the noise ceiling (5-fold grouped GB) ...", flush=True)
+    plug, bound, q_ece, q_hat = noise_ceiling(T)
+    print(f"\n   Var(gap) = {gap.var():.4f}")
+    print(f"   plug-in ceiling  1 - E[q(1-q)]/Var(gap)   = {plug:.4f}")
+    print(f"   rigorous bound   1 - OOF Brier/Var(gap)   = {bound:.4f}   (ceiling >= this)")
+    print(f"   ECE of q_hat = {q_ece:.4f} (well calibrated => plug-in trustworthy)")
+    print(f"\n   So the achievable ceiling is ~{plug:.2f}, NOT the ~0.18 a logistic-")
+    print("   regression estimate suggests. An underfit q_hat is shrunk toward 0.5,")
+    print("   overstating the noise and understating the ceiling -- low enough that")
+    print("   observed partitions exceed it, which is how the error was caught.")
+    best = r2_table.iloc[0]
+    print(f"\n   best partition: {best['partition']} R^2={best['R2']:.4f} "
+          f"= {100*best['R2']/plug:.0f}% of the ~{plug:.2f} ceiling")
+    print(f"   c_prev alone:   R^2={base:.4f} = {100*base/plug:.0f}% of ceiling")
+
+    print("\n" + "-" * 78)
+    print("   DECOMPOSITION: Var(gap|L) = Var(y|L) + Var(p|L) - 2Cov(y,p|L)")
+    print("   A partition scores by predicting y OR by homogenising p -- these are")
+    print("   different achievements and the ranking is not readable without this.")
+    print("-" * 78)
+    print(f"   {'partition':<26}{'R^2':>8}{'E Var(y)':>11}{'E Var(p)':>11}{'E Cov':>10}")
+    dec_rows = []
+    for nm, lab in [("c_prev", T["c_prev"].astype(int)),
+                    ("hard_argmax", T["hard_argmax"]),
+                    ("c_prev x streak_bin",
+                     T["c_prev"].astype(int).astype(str) + "|" + T["streak_bin"].astype(str)),
+                    ("p_alt1_bin (20q)", T["p_alt1_bin"].astype(str)),
+                    ("q_hat 50q (best y-pred)", pd.qcut(q_hat, 50, duplicates="drop").astype(str))]:
+        d = variance_decomposition(T, lab)
+        r = r2_explained(gap, lab)
+        print(f"   {nm:<26}{r:>8.4f}{d['E_Var_y']:>11.4f}{d['E_Var_p']:>11.4f}{d['E_Cov']:>+10.4f}")
+        dec_rows.append({"partition": nm, "R2": r, **d})
+    print(f"   {'(unconditional)':<26}{0.0:>8.4f}"
+          f"{T['chose_biased'].var():>11.4f}{T['p_alt1'].var():>11.4f}"
+          f"{float(np.cov(T['chose_biased'], T['p_alt1'])[0,1]):>+10.4f}")
+    pd.DataFrame(dec_rows).to_csv(OUT_DIR / "variance_decomposition.csv", index=False)
+    vp_uncond = T["p_alt1"].var()
+    vp_cprev = variance_decomposition(T, T["c_prev"].astype(int))["E_Var_p"]
+    print(f"\n   c_prev removes {100*(1-vp_cprev/vp_uncond):.0f}% of the variance in CATIE's")
+    print("   OWN forecast p. So 'c_prev explains the calibration gap' is substantially")
+    print("   a statement about the model's architecture (phi=0.71 dominates p), not")
+    print("   purely a discovery about human behaviour. See README finding #6.")
+
+    # ── 5. Hard vs soft attribution + the circularity proof ─────────────────
     print("\n" + "=" * 78)
-    print("5. HARD vs SOFT MODE ATTRIBUTION")
+    print("5. MODE ATTRIBUTION -- why soft_argmax cannot be used as a partition")
     print("=" * 78)
-    print("   OLD (planning-phase) method: hard argmax over mass toward 'choosing alt1'.")
-    print("   Forced to equal c_prev exactly for the inertia regime (its contribution is")
-    print("   phi*c_prev, identically 0 when c_prev=0) -- not an empirical finding.\n")
-    print("   P(c_prev=1 | hard_argmax):")
-    hard_tab = M_trials.groupby("hard_argmax", observed=True)["c_prev"].agg(["mean", "count"])
-    print(hard_tab.to_string())
+    print("   Hard argmax (mass toward alt 1) is a deterministic relabelling of c_prev:")
+    print("   inertia's contribution is phi*c_prev, identically 0 when c_prev=0.\n")
+    print(T.groupby("hard_argmax", observed=True)["c_prev"].agg(["mean", "count"]).to_string())
+    print("\n   The Bayesian posterior fixes THAT degeneracy ...")
+    print(T.groupby("soft_argmax", observed=True)["c_prev"].agg(["mean", "count"]).to_string())
+    print("\n   ... but replaces it with a worse one. PROOF: regime r's unnormalised")
+    print("   responsibility is w_r*P(y|r). For inertia P(alt1|inertia)=c_prev in {0,1},")
+    print("   so its term is exactly w_I when y==c_prev and exactly 0 otherwise. And")
+    print("   w_I = (1-tau*H)(1-p_exp)*phi >= 0.71*0.70*0.71 = 0.3529 strictly exceeds")
+    print("   every other regime's maximum (heuristic <= tau = 0.29; contingent <=")
+    print("   (1-tau*H)(1-p_exp)*0.29 < w_I; exploration <= (1-tau*H)*0.15 < w_I). The")
+    print("   inequality holds per-k so it survives the convex k-mixture. Therefore:")
+    print("\n       soft_argmax == inertia   <=>   y == c_prev,  identically.\n")
+    cross = T.groupby(["c_prev", "soft_argmax"], observed=True)["chose_biased"].agg(["mean", "count"])
+    print(cross.to_string())
+    degenerate = cross["mean"].isin([0.0, 1.0]).all()
+    mism = int(((T["soft_argmax"] == "inertia") != (T["chose_biased"] == T["c_prev"])).sum())
+    print(f"\n   every cell mean in {{0,1}}: {degenerate}     mismatches: {mism} / {len(T):,}")
+    print("   soft_argmax is the repeat/switch indicator plus a 3-way tiebreak. It")
+    print("   carries exactly one bit beyond c_prev and that bit IS the outcome, so")
+    print("   any reliability curve drawn from it is reconstructible from the counts")
+    print("   above and says nothing about the regimes. No such curve is plotted.")
 
-    print("\n   NEW method: Bayesian responsibility posterior. Genuinely NOT forced to")
-    print("   be deterministic in c_prev (see responsibility.py) -- confirmed below.\n")
-    print("   P(c_prev=1 | soft_argmax):")
-    soft_tab = M_trials.groupby("soft_argmax", observed=True)["c_prev"].agg(["mean", "count"])
-    print(soft_tab.to_string())
-
-    print("\n   BUT: the responsibility posterior is computed FROM the observed choice")
-    print("   y(t) (resp_r(t) uses y(t) to pick contribution_r(t) vs weight_r(t)-")
-    print("   contribution_r(t)) -- so soft_argmax is RETROSPECTIVE, not a forecasting")
-    print("   partition, and must not be scored the way c_prev/hard_argmax are.")
-    print("   Direct proof: within every single (c_prev, soft_argmax) cell, does")
-    print("   chose_biased come out exactly 0 or 1 (i.e. does the label recover y(t)")
-    print("   outright)?\n")
-    circularity_check = M_trials.groupby(["c_prev", "soft_argmax"], observed=True)["chose_biased"].agg(["mean", "count"])
-    print(circularity_check.to_string())
-    all_degenerate = circularity_check["mean"].isin([0.0, 1.0]).all()
-    print(f"\n   every cell mean in {{0, 1}}: {all_degenerate}  "
-          f"{'-- confirmed circular, as expected' if all_degenerate else '-- NOT circular, reconsider the R^2 exclusion above'}")
-    print("\n   soft_argmax's legitimate use is therefore RETROSPECTIVE ERROR ATTRIBUTION:")
-    print("   'of the choices CATIE got most wrong, which regime's implicit confidence")
-    print("   was responsible' -- see section 7. It cannot be used as-is to improve a")
-    print("   real-time forecast, and its R^2-of-gap-explained is not reported, because")
-    print("   it would not mean what a reader would assume it means.")
-
-    # ── 6. Per-schedule metrics (never done, including in the paper) ─────────
+    # ── 6. Per-schedule ──────────────────────────────────────────────────────
     print("\n" + "=" * 78)
     print("6. PER-SCHEDULE METRIC SUITE")
     print("=" * 78)
-    sched_rows = []
-    for sched, g in M_trials.groupby("schedule", observed=True):
-        row = {"schedule": sched, **M.score_all(g["p_alt1"], g["p_choice"], g["chose_biased"])}
-        sched_rows.append(row)
-    sched_df = pd.DataFrame(sched_rows)
-    sched_df["order"] = sched_df["schedule"].str.replace("schedule_", "").astype(int)
-    sched_df = sched_df.sort_values("order").drop(columns="order")
-    print(sched_df.to_string(index=False))
-    sched_df.to_csv(OUT_DIR / "metrics_by_schedule.csv", index=False)
+    srows = []
+    for sched, g_ in T.groupby("schedule", observed=True):
+        srows.append({"schedule": sched, **M.score_all(g_["p_alt1"], g_["p_choice"],
+                                                       g_["chose_biased"]),
+                      "empirical_rate": g_["chose_biased"].mean(),
+                      "gap": g_["chose_biased"].mean() - g_["p_alt1"].mean()})
+    sdf = pd.DataFrame(srows)
+    sdf["order"] = sdf["schedule"].str.replace("schedule_", "").astype(int)
+    sdf = sdf.sort_values("order").drop(columns="order")
+    print(sdf.to_string(index=False))
+    sdf.to_csv(OUT_DIR / "metrics_by_schedule.csv", index=False)
+    print(f"\n   Empirical biased-choice rate ranges {sdf['empirical_rate'].min():.3f}"
+          f"-{sdf['empirical_rate'].max():.3f} across schedules (spread "
+          f"{sdf['empirical_rate'].max()-sdf['empirical_rate'].min():.3f}), yet max |gap|"
+          f" is only {sdf['gap'].abs().max():.3f}.")
+    print("   schedule's near-zero R^2 is therefore a POSITIVE result -- CATIE tracks")
+    print("   between-schedule variation almost perfectly -- not evidence that")
+    print("   schedule is behaviourally irrelevant.")
 
-    # ── 7. Retrospective error attribution by dominant mode ──────────────────
+    # ── 7. The interaction the earlier version missed ────────────────────────
     print("\n" + "=" * 78)
-    print("7. RETROSPECTIVE ERROR ATTRIBUTION BY DOMINANT MODE (soft posterior)")
+    print("7. THE STRONGEST PARTITION: c_prev x run length")
     print("=" * 78)
-    print("   NOT a calibration partition (see section 5) -- 'predicted' and 'empirical'")
-    print("   below describe trials grouped by which regime the E-step attributes the")
-    print("   REALISED choice to, useful for asking 'when CATIE is wrong, which regime's")
-    print("   implicit confidence estimate is responsible', which is what Phase 4's model")
-    print("   extensions need to target. Not usable to improve a real-time forecast.\n")
-    mode_tab = stratum_table(M_trials, "soft_argmax")
-    print(mode_tab.to_string(index=False))
-    mode_tab.to_csv(OUT_DIR / "gap_by_soft_mode.csv", index=False)
+    inter = T.groupby(["c_prev", "streak_bin"], observed=True).apply(
+        lambda g_: pd.Series({"n": len(g_), "predicted": g_["p_alt1"].mean(),
+                              "empirical": g_["chose_biased"].mean(),
+                              "gap": g_["chose_biased"].mean() - g_["p_alt1"].mean()}),
+        include_groups=False)
+    print(inter.to_string())
+    inter.to_csv(OUT_DIR / "gap_by_cprev_streak.csv")
+    print("\n   The gap is monotone in run length and REVERSES SIGN inside both c_prev")
+    print("   strata. So the headline +0.205/-0.114 split is itself an average over")
+    print("   oppositely-signed sub-strata -- the same failure mode this chapter is")
+    print("   about, one level down. CATIE's constant phi under-predicts perseveration")
+    print("   after long runs and over-predicts it after short ones.")
+    print("   CONSEQUENCE FOR PHASE 4: an asymmetric inertia (one phi per side of")
+    print("   c_prev) targets only the main effect and CANNOT represent a within-")
+    print("   stratum sign reversal. Run-length-dependent or recency-weighted inertia")
+    print("   is what these data actually demand.")
 
-    # ── Figures ────────────────────────────────────────────────────────────────
+    # ── 8. Does the cancellation really drive the E[p]/E[log p] split? ──────
+    print("\n" + "=" * 78)
+    print("8. TESTING (not asserting) THE E[p] vs E[log p] MECHANISM")
+    print("=" * 78)
+    print("   If the c_prev-conditional miscalibration is what costs CATIE on E[log p],")
+    print("   then removing it should improve E[log p] while NOT improving (or even")
+    print("   hurting) E[p]. Recalibrating in three ways:\n")
+    y_ = T["chose_biased"].to_numpy().astype(float)
+    variants = {"CATIE as-is": T["p_alt1"].to_numpy()}
+    variants["c_prev stratum rate"] = (
+        T.groupby("c_prev")["chose_biased"].transform("mean").to_numpy())
+    variants["c_prev x streak_bin rate"] = (
+        T.groupby(["c_prev", "streak_bin"], observed=True)["chose_biased"]
+        .transform("mean").to_numpy())
+    iso = IsotonicRegression(out_of_bounds="clip")
+    variants["isotonic on p_alt1 (in-sample)"] = iso.fit_transform(T["p_alt1"], y_)
+    print(f"   {'forecast':<34}{'E[p]':>9}{'E[log p]':>11}{'ECE':>9}")
+    for nm, pv in variants.items():
+        pc = np.where(y_ > 0.5, pv, 1 - pv)
+        print(f"   {nm:<34}{M.e_p(pc):>9.4f}{M.e_log_p(pc):>11.4f}"
+              f"{M.ece(pv, y_):>9.4f}")
+    print("\n   The dissociation is real: correcting the c_prev-conditional gap")
+    print("   IMPROVES E[log p] while LOWERING E[p] -- exactly the trade the")
+    print("   E[p]/E[log p] disagreement consists of.")
+    print("   CAVEAT: the isotonic row is IN-SAMPLE and so is an optimistic bound,")
+    print("   not a held-out result. And a full causal claim about why CATIE loses")
+    print("   to Q-Learning needs QL's own conditional calibration profile, which is")
+    print("   NOT computed anywhere in this repo. Stated as a mechanism consistent")
+    print("   with the data, not as a demonstrated cause.")
+
+    # ── figures ──────────────────────────────────────────────────────────────
     print("\n" + "=" * 78)
     print("FIGURES")
     print("=" * 78)
 
-    # fig1: aggregate reliability vs c_prev split
     fig1, axes = plt.subplots(1, 2, figsize=(11, 4.5))
-    rel_all = M.reliability_table(M_trials["p_alt1"], M_trials["chose_biased"], n_bins=10, min_count=30)
+    rel = M.reliability_table(T["p_alt1"], T["chose_biased"], n_bins=10, min_count=30)
     axes[0].plot([0, 1], [0, 1], "--", color="0.5", lw=1)
-    axes[0].scatter(rel_all["predicted"], rel_all["empirical"], s=rel_all["n"] / 30, color="#333")
-    axes[0].set_xlabel("predicted P(biased)"); axes[0].set_ylabel("empirical P(biased)")
-    axes[0].set_title(f"Aggregate (n={len(M_trials):,})")
+    axes[0].scatter(rel["predicted"], rel["empirical"], s=rel["n"] / 30, color="#333")
+    axes[0].set_title(f"Aggregate (n={len(T):,})")
     axes[1].plot([0, 1], [0, 1], "--", color="0.5", lw=1)
-    for v, label, color in [(0, "c_prev=0 (prior: unbiased)", PALETTE["c_prev=0"]),
-                            (1, "c_prev=1 (prior: biased)", PALETTE["c_prev=1"])]:
-        sub = M_trials[M_trials["c_prev"] == v]
-        rel = M.reliability_table(sub["p_alt1"], sub["chose_biased"], n_bins=10, min_count=30)
-        axes[1].plot(rel["predicted"], rel["empirical"], "o-", color=color, label=label)
-    axes[1].set_xlabel("predicted P(biased)"); axes[1].set_ylabel("empirical P(biased)")
+    for v, lab, col in [(0, "c_prev=0 (prior: unbiased)", PALETTE["c_prev=0"]),
+                        (1, "c_prev=1 (prior: biased)", PALETTE["c_prev=1"])]:
+        s = T[T["c_prev"] == v]
+        rr = M.reliability_table(s["p_alt1"], s["chose_biased"], n_bins=10, min_count=30)
+        axes[1].plot(rr["predicted"], rr["empirical"], "o-", color=col, label=lab)
     axes[1].set_title("Split by previous choice")
     axes[1].legend(frameon=False, fontsize=9)
     for ax in axes:
+        ax.set_xlabel("predicted P(biased)"); ax.set_ylabel("empirical P(biased)")
         ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.spines[["top", "right"]].set_visible(False)
     fig1.tight_layout()
 
-    # fig2: R^2 partition comparison
-    fig2, ax = plt.subplots(figsize=(8, 5))
-    r2_sorted = r2_table.sort_values("R2")
-    colors = ["#d62728" if "baseline" in p else "#4c72b0" for p in r2_sorted["partition"]]
-    ax.barh(r2_sorted["partition"], r2_sorted["R2"], color=colors)
+    fig2, ax = plt.subplots(figsize=(9, 6))
+    rs = r2_table.sort_values("R2")
+    cols = ["#d62728" if "baseline" in p_ else "#4c72b0" for p_ in rs["partition"]]
+    ax.barh(rs["partition"], rs["R2"], color=cols)
+    ax.axvline(plug, color="0.3", ls="--", lw=1.4)
+    ax.text(plug, 0.3, f"  noise ceiling ~{plug:.2f}", fontsize=9, color="0.3", va="bottom")
     ax.set_xlabel("R$^2$ of calibration gap explained")
-    ax.set_title("Which PROSPECTIVE partition explains the miscalibration?")
+    ax.set_title("Prospective partitions vs. the achievable ceiling")
     ax.spines[["top", "right"]].set_visible(False)
     fig2.tight_layout()
 
-    # fig3: reliability by soft dominant mode
-    fig3, ax = plt.subplots(figsize=(7.5, 5))
-    ax.plot([0, 1], [0, 1], "--", color="0.5", lw=1)
-    for name in REGIME_NAMES:
-        sub = M_trials[M_trials["soft_argmax"] == name]
-        if len(sub) < 100:
-            continue
-        rel = M.reliability_table(sub["p_alt1"], sub["chose_biased"], n_bins=8, min_count=20)
-        ax.plot(rel["predicted"], rel["empirical"], "o-", color=PALETTE.get(name, "#333"),
-               label=f"{name} (n={len(sub):,})")
-    ax.set_xlabel("predicted P(biased)"); ax.set_ylabel("empirical P(biased)")
-    ax.set_title("Retrospective error attribution by dominant mode\n(NOT a calibration partition -- see output.txt §5)")
+    fig3, ax = plt.subplots(figsize=(8, 5))
+    ip = inter.reset_index()
+    for v, col, lab in [(0.0, PALETTE["c_prev=0"], "c_prev=0 (prior: unbiased)"),
+                        (1.0, PALETTE["c_prev=1"], "c_prev=1 (prior: biased)")]:
+        s = ip[ip["c_prev"] == v]
+        ax.plot(s["streak_bin"].astype(str), s["gap"], "o-", color=col, label=lab)
+    ax.axhline(0, color="0.4", lw=1)
+    ax.set_xlabel("run length of identical choices ending at t-1")
+    ax.set_ylabel("calibration gap (empirical - predicted)")
+    ax.set_title("The gap reverses sign with run length inside BOTH strata")
     ax.legend(frameon=False, fontsize=9)
-    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.spines[["top", "right"]].set_visible(False)
+    ax.spines[["top", "right"]].set_visible(False)
     fig3.tight_layout()
 
-    # fig4: ECE by schedule
     fig4, ax = plt.subplots(figsize=(8.5, 4.5))
-    sd = sched_df.copy()
-    sd["order"] = sd["schedule"].str.replace("schedule_", "").astype(int)
-    sd = sd.sort_values("order")
+    sd = sdf.copy()
+    sd["o"] = sd["schedule"].str.replace("schedule_", "").astype(int)
+    sd = sd.sort_values("o")
     ax.bar(sd["schedule"].str.replace("schedule_", ""), sd["ECE"], color="#4c72b0")
     ax.set_xlabel("schedule"); ax.set_ylabel("ECE")
     ax.set_title("Calibration error by reward schedule (fixed model)")
     ax.spines[["top", "right"]].set_visible(False)
     fig4.tight_layout()
 
-    # fig5: hard vs soft attribution, P(c_prev=1 | mode)
-    fig5, ax = plt.subplots(figsize=(8, 5))
-    x = np.arange(len(REGIME_NAMES))
-    hard_vals = [hard_tab.loc[n, "mean"] if n in hard_tab.index else np.nan for n in REGIME_NAMES]
-    soft_vals = [soft_tab.loc[n, "mean"] if n in soft_tab.index else np.nan for n in REGIME_NAMES]
-    ax.bar(x - 0.2, hard_vals, 0.4, label="hard argmax (old)", color="#d62728")
-    ax.bar(x + 0.2, soft_vals, 0.4, label="soft posterior (new)", color="#1f77b4")
-    ax.set_xticks(x); ax.set_xticklabels(REGIME_NAMES, rotation=20, ha="right")
-    ax.set_ylabel("P(c_prev = 1 | dominant mode)")
-    ax.set_title("Hard attribution is forced to {0,1}; the posterior is not\n"
-                 "(posterior is retrospective -- diagnostic only, not a forecast partition)")
-    ax.axhline(0, color="0.7", lw=0.8); ax.axhline(1, color="0.7", lw=0.8)
-    ax.legend(frameon=False)
-    ax.spines[["top", "right"]].set_visible(False)
-    fig5.tight_layout()
+    figs = {"fig1_reliability_aggregate_vs_cprev": fig1,
+            "fig2_r2_partition_comparison": fig2,
+            "fig3_gap_by_cprev_and_runlength": fig3,
+            "fig4_ece_by_schedule": fig4}
+    for nm, fg in figs.items():
+        fg.savefig(OUT_DIR / f"{nm}.png", dpi=150, bbox_inches="tight")
+        print(f"  {nm}.png")
 
-    figure_map = {
-        "fig1_reliability_aggregate_vs_cprev": fig1,
-        "fig2_r2_partition_comparison": fig2,
-        "fig3_reliability_by_soft_mode": fig3,
-        "fig4_ece_by_schedule": fig4,
-        "fig5_hard_vs_soft_attribution": fig5,
-    }
-    for name, fig in figure_map.items():
-        fig.savefig(OUT_DIR / f"{name}.png", dpi=150, bbox_inches="tight")
-        print(f"  {name}.png")
+    stale = ["fig3_reliability_by_soft_mode.png", "fig5_hard_vs_soft_attribution.png",
+             "gap_by_soft_mode.csv"]
+    for s in stale:
+        f = OUT_DIR / s
+        if f.exists():
+            f.unlink()
+            print(f"  removed stale artifact: {s}")
 
     print("\ndone.")
     sys.stdout = sys.__stdout__
