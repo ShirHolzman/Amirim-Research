@@ -23,7 +23,7 @@ each regime:
 Using mode_contributions directly: contribution_r(t) = weight_r(t) * P(alt1|r), so
 
     weight_r(t) * P(y(t)|r) = contribution_r(t)               if y(t) == 1
-                             = weight_r(t) - contribution_r(t)  if y(t) == 0
+                            = weight_r(t) - contribution_r(t)  if y(t) == 0
 
 and P(y(t)) is exactly p_choice(t), the already-computed probability of the
 observed choice -- so responsibilities normalise to 1 by construction (verified at
