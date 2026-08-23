@@ -52,7 +52,7 @@ fprintf('project root : %s\n', project_root);
 %% ── 2. Schedule directories ──────────────────────────────────────────────
 
 schedules = {
-    'schedule_0',  fullfile(project_root, 'my_code', 'schedule_0')
+    'schedule_0',  fullfile(project_root, 'my_code', 'Schedule0_set', 'schedule_0')
     'schedule_1',  fullfile(project_root, 'my_code', 'Test_set', 'schedule_1')
     'schedule_2',  fullfile(project_root, 'my_code', 'Training_set', 'schedule_2')
     'schedule_3',  fullfile(project_root, 'my_code', 'Training_set', 'schedule_3')
@@ -122,11 +122,8 @@ for si = 1:size(schedules, 1)
             continue;
         end
 
-        req = {'trial_number','is_biased_choice','side_choice','biased_reward','unbiased_reward'};
+        req = {'trial_number','is_choice_alternative_1','reward_alternative_1','reward_alternative_2'};
         if ~all(ismember(req, d.Properties.VariableNames)), continue; end
-
-        [side_counts, ~] = groupcounts(d.side_choice);
-        if numel(side_counts) < 2 || min(side_counts) < MIN_CHOICES_PER_SIDE, continue; end
 
         if height(d) ~= N_TRIALS || ~isequal(sort(d.trial_number), (0:N_TRIALS-1)')
             continue;
@@ -135,9 +132,9 @@ for si = 1:size(schedules, 1)
         [~, ord] = sort(d.trial_number);
         d = d(ord, :);
 
-        rewards_1   = double(d.biased_reward);
-        rewards_2   = double(d.unbiased_reward);
-        is_choice_1 = strcmpi(d.is_biased_choice, 'true');
+        rewards_1   = double(d.reward_alternative_1);
+        rewards_2   = double(d.reward_alternative_2);
+        is_choice_1 = strcmpi(strtrim(d.is_choice_alternative_1), 'true');
 
         subject_id = sprintf('%s/%s', sched_label, fname);
 

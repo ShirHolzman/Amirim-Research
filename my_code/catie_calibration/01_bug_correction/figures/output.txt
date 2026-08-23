@@ -5,7 +5,7 @@ parameters held fixed at published values: tau=0.29, epsilon=0.3, phi=0.71, k in
 no re-fitting; every difference below is attributable to the bug alone
 
 scoring eda ...
-   492 subjects, 49,200 trials
+   496 subjects, 49,600 trials
 scoring training ...
    1483 subjects, 148,300 trials
 scoring test ...
@@ -17,7 +17,7 @@ scoring schedule_0 ...
 1. HEADLINE METRICS BY SPLIT
 ==============================================================================
 split         subj   trials  E[p] pub  E[p] fix       d  Elogp pub  Elogp fix        d
-eda            492   49,200    0.6013    0.6146 +0.0134    -0.7141    -0.6992  +0.0149
+eda            496   49,600    0.6011    0.6143 +0.0132    -0.7141    -0.6995  +0.0146
 training      1483  148,300    0.6056    0.6216 +0.0161    -0.6842    -0.6688  +0.0154
 test           804   80,400    0.6159    0.6191 +0.0031    -0.6900    -0.6789  +0.0111
 schedule_0     549   54,900    0.6762    0.6784 +0.0022    -0.5826    -0.5799  +0.0027
@@ -30,9 +30,9 @@ pooled row below, which is.
 ==============================================================================
 2. POOLED ACROSS ALL SCHEDULES (comparable to Tables S1/S2)
 ==============================================================================
-   subjects 3,328   trials 332,800   schedules 12
-   E[p]     published 0.6191   fixed 0.6293   delta +0.0103
-   E[log p] published -0.6732   fixed -0.6610   delta +0.0122
+   subjects 3,332   trials 333,200   schedules 12
+   E[p]     published 0.6190   fixed 0.6293   delta +0.0103
+   E[log p] published -0.6733   fixed -0.6611   delta +0.0122
 
 ==============================================================================
 3. PAIRED TESTS, CLUSTERED BY SUBJECT (10 000 bootstrap resamples)
@@ -40,18 +40,18 @@ pooled row below, which is.
    trials within a subject are highly dependent; resampling trials rather
    than subjects would overstate significance by roughly sqrt(100) = 10x
 
-   E[p]       fixed - published = +0.0103  95% CI [+0.0098, +0.0108]  t(3327)=39.09  p=2.446e-275 ***  dz=0.678
-   E[log p]   fixed - published = +0.0122  95% CI [+0.0113, +0.0130]  t(3327)=27.74  p=1.705e-152 ***  dz=0.481
+   E[p]       fixed - published = +0.0103  95% CI [+0.0097, +0.0108]  t(3331)=39.02  p=1.138e-274 ***  dz=0.676
+   E[log p]   fixed - published = +0.0122  95% CI [+0.0113, +0.0130]  t(3331)=27.64  p=1.456e-151 ***  dz=0.479
 
 ==============================================================================
 4. TREND/HEURISTIC BRANCH ACTIVITY
 ==============================================================================
 split         testable  % trials  fires (fixed)  % trials
-eda              8,307    16.88%          3,645     7.41%
+eda              8,375    16.89%          3,679     7.42%
 training        31,086    20.96%         14,446     9.74%
 test            13,882    17.27%          6,149     7.65%
 schedule_0       2,054     3.74%            530     0.97%
-POOLED          55,329    16.63%         24,770     7.44%
+POOLED          55,397    16.63%         24,804     7.44%
 
    'testable' = same choice on t-1 and t-2 with differing payoffs, so the
    trend rule is applicable. Under the published code the branch contributes
@@ -62,15 +62,15 @@ POOLED          55,329    16.63%         24,770     7.44%
 5. MAGNITUDE OF DISAGREEMENT
 ==============================================================================
    |delta P(alt 1)|   mean 0.0231   median 0.0002   max 0.3289
-   trials with any disagreement (>1e-9): 289,593 (87.02%)
-   |delta| > 0.05: 25,625 (7.70%)
-   |delta| > 0.10: 24,797 (7.45%)
-   |delta| > 0.20: 24,770 (7.44%)
+   trials with any disagreement (>1e-9): 289,980 (87.03%)
+   |delta| > 0.05: 25,659 (7.70%)
+   |delta| > 0.10: 24,831 (7.45%)
+   |delta| > 0.20: 24,804 (7.44%)
 
    low-probability tail (the quantity that drives E[log p]):
    p(choice) < 0.05:  published 25 (0.01%)   fixed 33 (0.01%)   delta +8
-   p(choice) < 0.10:  published 18,241 (5.48%)   fixed 18,748 (5.63%)   delta +507
-   p(choice) < 0.15:  published 27,609 (8.30%)   fixed 28,765 (8.64%)   delta +1,156
+   p(choice) < 0.10:  published 18,254 (5.48%)   fixed 18,762 (5.63%)   delta +508
+   p(choice) < 0.15:  published 27,627 (8.29%)   fixed 28,789 (8.64%)   delta +1,162
 
 ==============================================================================
 6. PER-SCHEDULE BREAKDOWN
@@ -85,7 +85,7 @@ schedule_3       607    0.6382    0.6626 +0.0244    -0.6060    -0.5913 +0.0148
 schedule_4       201    0.5879    0.5963 +0.0084    -0.7489    -0.7342 +0.0147
 schedule_5       176    0.6376    0.6580 +0.0205    -0.6327    -0.6137 +0.0190
 schedule_6       144    0.5745    0.5849 +0.0104    -0.7569    -0.7441 +0.0128
-schedule_7       115    0.5689    0.5802 +0.0113    -0.7777    -0.7688 +0.0089
+schedule_7       119    0.5694    0.5801 +0.0107    -0.7757    -0.7678 +0.0079
 schedule_8       116    0.5444    0.5500 +0.0056    -0.8120    -0.7979 +0.0142
 schedule_9       107    0.5568    0.5680 +0.0112    -0.7777    -0.7634 +0.0144
 

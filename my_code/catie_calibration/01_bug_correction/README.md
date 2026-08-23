@@ -88,7 +88,7 @@ my_code/{Training_set,Test_set,schedule_0}/**/*.csv
    -> catie_calibration/sanitize_splits.py
    -> catie_calibration/data/cleaned_{training,test,schedule_0}.csv
                                                                   \
-my_code/EDA_set/processing/eda_with_catie_probabilities.csv -------+-> bug_benchmark.py
+data/cleaned_eda.csv ------------------------------------+-> bug_benchmark.py
                                                                   /
 catie_calibration/catie_core.py (+ metrics.py) --------------------
 ```

@@ -200,7 +200,7 @@ def stars(p: float) -> str:
 class Tee:
     """Write to several streams at once, tolerating consoles with narrow encodings.
 
-    Mirrors the `_Tee` used by the existing analysis scripts under my_code/EDA_set/
+    Mirrors the `_Tee` used by the existing analysis scripts under my_code/initial_investigation/
     so that every analysis directory keeps producing a figures/output.txt transcript.
     """
 

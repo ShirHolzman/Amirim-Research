@@ -76,7 +76,6 @@ plt.rcParams.update({"figure.dpi": 120, "font.size": 11, "font.family": "sans-se
 RNG_SEED = 42
 OUT_DIR = HERE / "figures"
 DATA_DIR = HERE.parent / "data"
-EDA_CSV = HERE.parent.parent / "EDA_set" / "processing" / "eda_with_catie_probabilities.csv"
 
 TEST_SCHEDULES = {"schedule_1", "schedule_8", "schedule_10"}
 
@@ -86,14 +85,10 @@ PALETTE = {"c_prev=0": "#4c72b0", "c_prev=1": "#d62728",
 
 # ── Section 1 -- Load data (EDA + Training + schedule_0; Test held out) ──────
 def load_frame() -> pd.DataFrame:
-    eda = pd.read_csv(EDA_CSV)
-    eda["subject_id"] = eda["schedule"] + "/" + eda["subject_file"]
-
     cols = ["subject_id", "schedule", "trial_number", "biased_reward",
             "unbiased_reward", "is_biased_choice", "observed_reward"]
-    frames = [eda[cols]]
-    for name in ("training", "schedule_0"):
-        frames.append(pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")[cols])
+    frames = [pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")[cols]
+              for name in ("eda", "training", "schedule_0")]
 
     out = pd.concat(frames, ignore_index=True)
     out["chose_biased"] = (out["is_biased_choice"].astype(str).str.upper() == "TRUE").astype(int)

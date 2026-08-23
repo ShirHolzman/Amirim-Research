@@ -66,17 +66,12 @@ import metrics as M  # noqa: E402
 
 TRIAL_CSV = HERE / "figures" / "trial_level.csv.gz"
 DATA_DIR = HERE.parent / "data"
-EDA_CSV = HERE.parent.parent / "EDA_set" / "processing" / "eda_with_catie_probabilities.csv"
 
 
 def load_choices() -> pd.DataFrame:
     """Same population as conditional_calibration.py (EDA + Training + schedule_0)."""
     frames = []
-    eda = pd.read_csv(EDA_CSV)
-    eda["subject_id"] = eda["schedule"] + "/" + eda["subject_file"]
-    frames.append(eda[["subject_id", "trial_number", "biased_reward",
-                       "unbiased_reward", "is_biased_choice"]])
-    for name in ("training", "schedule_0"):
+    for name in ("eda", "training", "schedule_0"):
         df = pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")
         frames.append(df[["subject_id", "trial_number", "biased_reward",
                           "unbiased_reward", "is_biased_choice"]])

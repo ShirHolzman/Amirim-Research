@@ -1,34 +1,32 @@
 """
 Golden test for catie_core -- BLOCKING gate for every downstream analysis.
 
-Checks:
-  1. The "published" port reproduces the stored MATLAB output
-     (my_code/EDA_set/processing/eda_with_catie_probabilities.csv) to < 1e-12.
-  2. A genuinely independent, monolithic, single-pass reference implementation
-     (defined below, sharing no code with catie_core.py) agrees with the
-     production split -- state_tensors() followed by probability_from_state().
-     This is the real test of the refactor into "cache parameter-free state
-     once, apply parameters afterward"; see the note on an earlier, vacuous
-     version of this check below.
-  3. mode_contributions()'s four terms sum to probability_from_state()'s
+Checks -- all SEVEN are blocking (each feeds `ok &= ...`, and main() returns
+a non-zero exit code if any fail; none is merely printed):
+  1. The "published" port (split: state_tensors + probability_from_state)
+     reproduces ORIGINAL, UNMODIFIED MATLAB, called live (not a
+     previously-stored CSV), across ALL 12 schedules -- both the hetero
+     mixture and each single-k model. See verify_against_live_matlab().
+  2. The independent monolithic reference (#3 below) ALSO vs that same live
+     MATLAB, per-k -- so it's checked against ground truth directly, not
+     just against split. Also inside verify_against_live_matlab().
+  3. That monolithic, single-pass reference implementation (defined below,
+     sharing no code with catie_core.py -- no import of state_tensors,
+     probability_from_state, or catie_probabilities) agrees with the
+     production split. This is the real test of the refactor into "cache
+     parameter-free state once, apply parameters afterward"; see the note
+     on an earlier, vacuous version of this check below.
+  4. mode_contributions()'s four terms sum to probability_from_state()'s
      output (except trial 1, which is hardcoded to 0.5 and never actually
      uses the mode decomposition).
-  4. In "published" mode the heuristic contribution to alternative 1 is
-     identically zero; in "fixed" mode it is not.
-  5. The trend branch is testable on ~16.9% of trials.
-
-On an earlier version of this check, "check 2" compared
-    probability_from_state(st_pub, ...)
-to
-    probability_from_state(st_pub, ...)
--- the same function called twice on the same object. That is guaranteed to
-return zero deviation regardless of whether either function is correct; it
-tested determinism, not correctness. It has been replaced by a comparison
-against `_reference_catie_probability` below, a hand-written, single-loop
-port that never splits state from parameters and does not call anything in
-catie_core.py, so a bug in the refactor (as opposed to a bug shared by both
-because they were transcribed from the same MATLAB line) has a real chance of
-being caught.
+  5. mode_weights()'s four priors sum to 1 (except trial 1) -- these are
+     the priors the responsibility-posterior E-step in 02_mode_calibration/
+     relies on being a valid distribution.
+  6. In "published" mode the heuristic contribution to alternative 1 is
+     EXACTLY zero (literal `== 0.0`, not a tolerance -- this IS the NaN
+     bug, expressed as a test); in "fixed" mode it is > 0.
+  7. The trend branch is testable on ~16.9% of trials (sanity bound
+     15-19%, not an exact figure -- depends on the sanitized population).
 
 Even this test only checks the FINAL probability end-to-end, not the
 individual state tensors (H, b, c_prev, s_prev, sbar_prev, g) against MATLAB's
@@ -38,10 +36,14 @@ instrumented copy of the original .m file (matlab/export_state_tensors.m) --
 see that script for the strongest test of state_tensors() in this project.
 
 Run:  python my_code/catie_calibration/golden_test.py
+      python my_code/catie_calibration/golden_test.py --regenerate-matlab
 """
 
+import argparse
 import pathlib
+import subprocess
 import sys
+import time
 
 import numpy as np
 import pandas as pd
@@ -54,8 +56,33 @@ from catie_core import (  # noqa: E402
 )
 
 TOLERANCE = 1e-12
-REFERENCE = (pathlib.Path(__file__).parent.parent
-             / "EDA_set" / "processing" / "eda_with_catie_probabilities.csv")
+
+PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
+MATLAB_DIR = pathlib.Path(__file__).parent / "matlab"
+MATLAB_DRIVER = MATLAB_DIR / "export_original_reference_all_schedules.m"
+MATLAB_REFERENCE_CSV = MATLAB_DIR / "results" / "original_reference_all_schedules.csv"
+
+# Same 12 schedules, same directories, as matlab/run_bug_comparison_all_schedules.m
+# and export_original_reference_all_schedules.m -- kept in sync deliberately.
+RAW_SCHEDULE_DIRS = {
+    "schedule_0":  PROJECT_ROOT / "my_code" / "Schedule0_set" / "schedule_0",
+    "schedule_1":  PROJECT_ROOT / "my_code" / "Test_set" / "schedule_1",
+    "schedule_2":  PROJECT_ROOT / "my_code" / "Training_set" / "schedule_2",
+    "schedule_3":  PROJECT_ROOT / "my_code" / "Training_set" / "schedule_3",
+    "schedule_4":  PROJECT_ROOT / "my_code" / "EDA_set" / "schedule_4",
+    "schedule_5":  PROJECT_ROOT / "my_code" / "EDA_set" / "schedule_5",
+    "schedule_6":  PROJECT_ROOT / "my_code" / "Training_set" / "schedule_6",
+    "schedule_7":  PROJECT_ROOT / "my_code" / "EDA_set" / "schedule_7",
+    "schedule_8":  PROJECT_ROOT / "my_code" / "Test_set" / "schedule_8",
+    "schedule_9":  PROJECT_ROOT / "my_code" / "Training_set" / "schedule_9",
+    "schedule_10": PROJECT_ROOT / "my_code" / "Test_set" / "schedule_10",
+    "schedule_11": PROJECT_ROOT / "my_code" / "Training_set" / "schedule_11",
+}
+
+# Checks 2-5 use the sanitized EDA split (496 subjects). Check 1 is independent
+# of this file -- it reads the raw per-subject CSVs directly, above.
+REFERENCE = pathlib.Path(__file__).parent / "data" / "cleaned_eda.csv"
+N_EDA_ROWS = 49_600
 
 
 def _reference_catie_probability(rewards_1, rewards_2, is_choice_1, k, mode,
@@ -176,21 +203,187 @@ def _reference_catie_probability(rewards_1, rewards_2, is_choice_1, k, mode,
     return p1[1:]
 
 
+def _run_matlab_reference():
+    """Actually invoke real MATLAB to (re)generate MATLAB_REFERENCE_CSV.
+
+    Calls the ORIGINAL, unmodified .m files -- not a stored/cached artifact --
+    via export_original_reference_all_schedules.m (see that file's header for
+    what it computes). Takes a few minutes.
+    """
+    print(f"running MATLAB: {MATLAB_DRIVER.name} (this takes a few minutes)...", flush=True)
+    t0 = time.time()
+    cmd = ["matlab", "-batch", f"run('{MATLAB_DRIVER.as_posix()}')"]
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+    print(result.stdout)
+    if result.returncode != 0:
+        print(result.stderr, file=sys.stderr)
+        raise RuntimeError(f"MATLAB driver failed with exit code {result.returncode}")
+    if not MATLAB_REFERENCE_CSV.exists():
+        raise RuntimeError(f"MATLAB driver ran but did not produce {MATLAB_REFERENCE_CSV}")
+    print(f"MATLAB run finished in {time.time() - t0:.0f}s", flush=True)
+
+
+def _load_raw_subject(schedule: str, subject_file: str):
+    """Read one raw per-subject CSV, sorted by trial_number -- same file the
+    MATLAB reference and the rest of this project's pipeline both read."""
+    path = RAW_SCHEDULE_DIRS[schedule] / subject_file
+    d = pd.read_csv(path)
+    d.columns = [c.strip() for c in d.columns]
+    d = d.sort_values("trial_number").reset_index(drop=True)
+    r1 = d["reward_alternative_1"].to_numpy(dtype=float)
+    r2 = d["reward_alternative_2"].to_numpy(dtype=float)
+    c1 = (d["is_choice_alternative_1"].astype(str).str.strip().str.upper()
+          == "TRUE").to_numpy()
+    return r1, r2, c1
+
+
+def verify_against_live_matlab(regenerate=False, tolerance=TOLERANCE):
+    """Check 1: the Python "published" port against ORIGINAL MATLAB, called
+    live, across ALL 12 schedules -- both the hetero mixture and each
+    single-k model (k=0,1,2) individually, so a mismatch can be localized to
+    "mixing" vs "a specific k". ALSO diffs the independent monolithic
+    reference (_reference_catie_probability, the implementation check 2 uses)
+    against the same live MATLAB, per-k -- previously that reference was only
+    ever checked against the Python split implementation (mono vs split),
+    never directly against MATLAB itself (mono vs ground truth). This closes
+    that gap: with this addition, split-vs-MATLAB, mono-vs-MATLAB, AND
+    mono-vs-split (check 2, unchanged, still runs separately below) all hold
+    independently -- a bug that happened to leave split-vs-MATLAB passing
+    could not also leave mono-vs-MATLAB passing unless it were a genuine,
+    correct result, since mono shares no code with either.
+
+    Replaces the previous version of this check, which only compared against
+    a single previously-stored CSV covering 3 of 12 schedules (EDA only).
+    That comparison could not tell you whether a mismatch was in the model
+    itself or was already baked into the stored file; this one calls the
+    unmodified .m files fresh and covers every schedule.
+
+    Unless `regenerate=True`, reuses MATLAB_REFERENCE_CSV if it already
+    exists (the MATLAB run takes a few minutes; no need to pay that cost on
+    every invocation of this otherwise-fast gate). Delete the CSV, or pass
+    `--regenerate-matlab` on the command line, to force a fresh MATLAB run.
+
+    Returns (ok, report_df).
+    """
+    if regenerate or not MATLAB_REFERENCE_CSV.exists():
+        _run_matlab_reference()
+    else:
+        print(f"reusing cached MATLAB reference: {MATLAB_REFERENCE_CSV}\n"
+              f"(pass --regenerate-matlab to force a fresh MATLAB run)")
+
+    ref = pd.read_csv(MATLAB_REFERENCE_CSV)
+    ref = ref.sort_values(["schedule", "subject_id", "trial_number"]).reset_index(drop=True)
+
+    rows = []
+    for (schedule, subject_id, subject_file), d in ref.groupby(
+            ["schedule", "subject_id", "subject_file"], sort=False):
+        d = d.sort_values("trial_number")
+        r1, r2, c1 = _load_raw_subject(schedule, subject_file)
+        assert len(c1) == len(d), (
+            f"{subject_id}: raw file has {len(c1)} trials, "
+            f"MATLAB reference has {len(d)}")
+
+        p_alt1_hetero = catie_hetero(r1, r2, c1, mode="published")
+        pc_hetero_py = p_of_observed_choice(p_alt1_hetero, c1)
+        dev_hetero = np.abs(pc_hetero_py - d["pc_hetero"].to_numpy())
+
+        dev_k = {}
+        dev_mono = {}
+        for k in (0, 1, 2):
+            p_alt1_k = catie_probabilities(r1, r2, c1, k=k, mode="published")
+            pc_k_py = p_of_observed_choice(p_alt1_k, c1)
+            dev_k[k] = np.abs(pc_k_py - d[f"pc_k{k}"].to_numpy())
+
+            # mono: the independent monolithic reference (check 2's implementation),
+            # diffed directly against live MATLAB -- not just against `split`.
+            p_alt1_mono = _reference_catie_probability(r1, r2, c1, k=k, mode="published")
+            pc_mono_py = p_of_observed_choice(p_alt1_mono, c1)
+            dev_mono[k] = np.abs(pc_mono_py - d[f"pc_k{k}"].to_numpy())
+
+        rows.append({
+            "schedule": schedule, "subject_id": subject_id,
+            "max_dev_hetero": dev_hetero.max(), "max_dev_k0": dev_k[0].max(),
+            "max_dev_k1": dev_k[1].max(), "max_dev_k2": dev_k[2].max(),
+            "max_dev_mono_k0": dev_mono[0].max(), "max_dev_mono_k1": dev_mono[1].max(),
+            "max_dev_mono_k2": dev_mono[2].max(),
+        })
+
+    subj = pd.DataFrame(rows)
+
+    def _sched_num(s):
+        return int(s.split("_")[1])
+    sched_order = sorted(subj["schedule"].unique(), key=_sched_num)
+
+    print("\n" + "=" * 118)
+    print("CHECK 1: Python 'published' port (split) AND the independent monolithic")
+    print("reference (mono, check 2's implementation) EACH vs LIVE, ORIGINAL, UNMODIFIED")
+    print("MATLAB -- all 12 schedules, both compared directly, not just to each other")
+    print("=" * 118)
+    print(f"{'schedule':<12}{'n_subj':>8}{'split hetero':>14}{'split k0':>11}"
+          f"{'split k1':>11}{'split k2':>11}{'  |  mono k0':>13}{'mono k1':>11}{'mono k2':>11}")
+    for sched in sched_order:
+        g = subj[subj["schedule"] == sched]
+        mono_k0_col = f"  |  {g['max_dev_mono_k0'].max():.2e}"
+        print(f"{sched:<12}{len(g):>8}{g['max_dev_hetero'].max():>14.2e}"
+              f"{g['max_dev_k0'].max():>11.2e}{g['max_dev_k1'].max():>11.2e}"
+              f"{g['max_dev_k2'].max():>11.2e}{mono_k0_col:>13}"
+              f"{g['max_dev_mono_k1'].max():>11.2e}{g['max_dev_mono_k2'].max():>11.2e}")
+
+    max_dev_hetero = subj["max_dev_hetero"].max()
+    max_dev_k = subj[["max_dev_k0", "max_dev_k1", "max_dev_k2"]].to_numpy().max()
+    max_dev_mono = subj[["max_dev_mono_k0", "max_dev_mono_k1", "max_dev_mono_k2"]].to_numpy().max()
+    ok = bool(max_dev_hetero < tolerance and max_dev_k < tolerance and max_dev_mono < tolerance)
+
+    pooled_mono_k0_col = f"  |  {subj['max_dev_mono_k0'].max():.2e}"
+    print("-" * 118)
+    print(f"{'POOLED':<12}{len(subj):>8}{max_dev_hetero:>14.2e}"
+          f"{subj['max_dev_k0'].max():>11.2e}{subj['max_dev_k1'].max():>11.2e}"
+          f"{subj['max_dev_k2'].max():>11.2e}"
+          f"{pooled_mono_k0_col:>13}"
+          f"{subj['max_dev_mono_k1'].max():>11.2e}{subj['max_dev_mono_k2'].max():>11.2e}"
+          f"   (tol {tolerance:.0e})")
+
+    if not ok:
+        all_dev_cols = ["max_dev_hetero", "max_dev_k0", "max_dev_k1", "max_dev_k2",
+                        "max_dev_mono_k0", "max_dev_mono_k1", "max_dev_mono_k2"]
+        worst = subj.loc[subj[all_dev_cols].max(axis=1).idxmax()]
+        print(f"\nWORST MISMATCH: {worst['subject_id']}  "
+              f"(split: hetero={worst['max_dev_hetero']:.3e}, k0={worst['max_dev_k0']:.3e}, "
+              f"k1={worst['max_dev_k1']:.3e}, k2={worst['max_dev_k2']:.3e}; "
+              f"mono: k0={worst['max_dev_mono_k0']:.3e}, k1={worst['max_dev_mono_k1']:.3e}, "
+              f"k2={worst['max_dev_mono_k2']:.3e})")
+
+    status = "PASS" if ok else "FAIL"
+    print(f"\n[{status}] split vs LIVE MATLAB: max|dev| hetero={max_dev_hetero:.3e}, "
+          f"per-k={max_dev_k:.3e}  |  mono vs LIVE MATLAB: max|dev| per-k={max_dev_mono:.3e} "
+          f"(tol {tolerance:.0e})")
+    print("=" * 118)
+    return ok, subj
+
+
 def load_reference():
+    """Sanitized EDA split (496 subjects) -- the data checks 2-5 run over.
+    Check 1 does not use this; see verify_against_live_matlab()."""
     df = pd.read_csv(REFERENCE)
     df["c1"] = df["is_biased_choice"].astype(str).str.upper() == "TRUE"
-    df = df.sort_values(["subject_file", "trial_number"]).reset_index(drop=True)
-    assert len(df) == 49_200, f"expected 49 200 rows, got {len(df)}"
-    assert df["catie_choice_probability"].notna().all()
+    df = df.sort_values(["subject_id", "trial_number"]).reset_index(drop=True)
+    assert len(df) == N_EDA_ROWS, f"expected {N_EDA_ROWS} rows, got {len(df)}"
     return df
 
 
 def main():
-    df = load_reference()
-    subjects = df["subject_file"].unique()
-    print(f"reference: {REFERENCE.name}  ({len(df):,} rows, {len(subjects)} subjects)")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--regenerate-matlab", action="store_true",
+                        help="Force a fresh MATLAB run for check 1, even if a "
+                             "cached reference CSV already exists.")
+    args = parser.parse_args()
 
-    max_dev = 0.0
+    ok1, _ = verify_against_live_matlab(regenerate=args.regenerate_matlab)
+
+    df = load_reference()
+    subjects = df["subject_id"].unique()
+    print(f"\nreference (checks 2-5): {REFERENCE.name}  ({len(df):,} rows, {len(subjects)} subjects)")
+
     max_ref_dev = 0.0
     max_decomp_dev = 0.0
     max_weights_dev = 0.0
@@ -199,16 +392,10 @@ def main():
     pub_heur_max = 0.0
     fix_heur_max = 0.0
 
-    for subj, d in df.groupby("subject_file", sort=False):
+    for subj, d in df.groupby("subject_id", sort=False):
         r1 = d["biased_reward"].to_numpy()
         r2 = d["unbiased_reward"].to_numpy()
         c1 = d["c1"].to_numpy()
-        ref = d["catie_choice_probability"].to_numpy()
-
-        # (1) published port vs stored MATLAB output, in P(observed choice) space
-        p_alt1 = catie_hetero(r1, r2, c1, mode="published")
-        p_choice = p_of_observed_choice(p_alt1, c1)
-        max_dev = max(max_dev, np.abs(p_choice - ref).max())
 
         for k in (0, 1, 2):
             for mode in ("published", "fixed"):
@@ -239,12 +426,9 @@ def main():
         n_trials_total += len(st_fix.H)
 
     print("\n" + "=" * 74)
-    ok = True
-
-    status = "PASS" if max_dev < TOLERANCE else "FAIL"
-    ok &= max_dev < TOLERANCE
-    print(f"[{status}] published port vs stored MATLAB      : max |dev| = {max_dev:.3e} "
-          f"(tol {TOLERANCE:.0e})")
+    print(f"CHECKS 2-5 (sanitized EDA split, {len(subjects)} subjects)")
+    print("=" * 74)
+    ok = ok1
 
     status = "PASS" if max_ref_dev < TOLERANCE else "FAIL"
     ok &= max_ref_dev < TOLERANCE

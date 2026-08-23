@@ -1,0 +1,5 @@
+model,n_par,elogp_eda
+M0 published params,0,-0.6995674808217518
+M1 + temperature (control),1,-0.6224773099529158
+"M2 re-fitted (tau,eps,phi)",3,-0.5916918102772133
+M3 + run-length phi (>=4),4,-0.5842140150560007

@@ -36,7 +36,6 @@ from catie_core import state_tensors  # noqa: E402
 
 MATLAB_CSV = HERE / "results" / "state_tensors_matlab.csv"
 DATA_DIR = HERE.parent / "data"
-EDA_CSV = HERE.parent.parent / "EDA_set" / "processing" / "eda_with_catie_probabilities.csv"
 
 # MATLAB's CSV round-trips through text, so allow a little more slack than the
 # 1e-12 used for pure in-process Python comparisons. Any real logic error would
@@ -49,18 +48,12 @@ TENSOR_NAMES = ("H", "b", "c_prev", "s_prev", "sbar_prev", "g")
 
 
 def load_all_subjects() -> pd.DataFrame:
-    """Same population and subject_id convention as 01_bug_correction/bug_benchmark.py
-    and sanitize_splits.py: EDA (from the pre-existing reference CSV) plus the three
-    splits sanitize_splits.py produces.
+    """Same population and subject_id convention as 01_bug_correction/bug_benchmark.py:
+    all four splits sanitize_splits.py produces.
     """
     frames = []
 
-    eda = pd.read_csv(EDA_CSV)
-    eda["subject_id"] = eda["schedule"] + "/" + eda["subject_file"]
-    frames.append(eda[["subject_id", "trial_number", "biased_reward",
-                       "unbiased_reward", "is_biased_choice"]])
-
-    for name in ("training", "test", "schedule_0"):
+    for name in ("eda", "training", "test", "schedule_0"):
         path = DATA_DIR / f"cleaned_{name}.csv"
         if not path.exists():
             print(f"  !! {path} missing -- run sanitize_splits.py first")

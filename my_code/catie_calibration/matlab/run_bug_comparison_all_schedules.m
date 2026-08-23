@@ -18,11 +18,9 @@
 %   Data_resources/competition_analysis-main/CATIE/CATIE_implementation_helpers/
 %     base2dec.m, getExploreProb.m
 %
-% As an independent sanity check, for the three EDA schedules (4, 5, 7) the
-% original model's output is compared against the previously-generated
-% my_code/EDA_set/processing/eda_with_catie_probabilities.csv -- both were
-% produced by the same original .m files, so they should agree to floating
-% point precision regardless of anything done in this script or in Python.
+% Independent validation of the original model's output now lives in
+% golden_test.py check 1, which diffs the Python port against a live
+% all-schedule MATLAB reference (export_original_reference_all_schedules.m).
 %
 % Run (from anywhere, non-interactively):
 %   matlab -batch "run('my_code/catie_calibration/matlab/run_bug_comparison_all_schedules.m')"
@@ -63,7 +61,7 @@ fprintf('fixed CATIE    : %s\n\n', fixed_dir);
 % subfolder of the given directory; 'flat' has CSVs directly in it.
 
 schedules = {
-    'schedule_0',  fullfile(project_root, 'my_code', 'schedule_0'),                      'flat'
+    'schedule_0',  fullfile(project_root, 'my_code', 'Schedule0_set', 'schedule_0'),                      'flat'
     'schedule_1',  fullfile(project_root, 'my_code', 'Test_set', 'schedule_1'),          'flat'
     'schedule_2',  fullfile(project_root, 'my_code', 'Training_set', 'schedule_2'),      'flat'
     'schedule_3',  fullfile(project_root, 'my_code', 'Training_set', 'schedule_3'),      'flat'
@@ -78,19 +76,15 @@ schedules = {
     };
 
 N_TRIALS = 100;
-MIN_CHOICES_PER_SIDE = 5;
 
-%% ── 3. Load stored EDA reference (for the sanity check in step 5) ───────
-
-eda_ref_path = fullfile(project_root, 'my_code', 'EDA_set', 'processing', 'eda_with_catie_probabilities.csv');
-eda_ref = readtable(eda_ref_path, 'TextType', 'string');
-eda_ref.is_choice_1_ref = strcmpi(eda_ref.is_biased_choice, 'true');
-
-%% ── 4. Process every schedule ────────────────────────────────────────────
+%% ── 3. Process every schedule ────────────────────────────────────────────
+% (An earlier version cross-checked schedules 4/5/7 against the stored
+% eda_with_catie_probabilities.csv. That file is retired: golden_test.py's
+% check 1 now compares against a live all-schedule MATLAB reference, which
+% covers strictly more than the old 3-schedule check did.)
 
 subj_rows = {};   % accumulate per-subject result rows (cell array of structs)
 n_excluded_total = 0;
-max_ref_dev = 0;   % max abs deviation vs stored EDA reference (sanity check)
 
 for si = 1:size(schedules, 1)
     sched_label = schedules{si, 1};
@@ -123,14 +117,8 @@ for si = 1:size(schedules, 1)
             continue;
         end
 
-        req = {'trial_number','is_biased_choice','side_choice','biased_reward','unbiased_reward'};
+        req = {'trial_number','is_choice_alternative_1','reward_alternative_1','reward_alternative_2'};
         if ~all(ismember(req, d.Properties.VariableNames))
-            n_excl = n_excl + 1;
-            continue;
-        end
-
-        [side_counts, ~] = groupcounts(d.side_choice);
-        if numel(side_counts) < 2 || min(side_counts) < MIN_CHOICES_PER_SIDE
             n_excl = n_excl + 1;
             continue;
         end
@@ -143,9 +131,9 @@ for si = 1:size(schedules, 1)
         [~, ord] = sort(d.trial_number);
         d = d(ord, :);
 
-        rewards_1   = double(d.biased_reward);
-        rewards_2   = double(d.unbiased_reward);
-        is_choice_1 = strcmpi(d.is_biased_choice, 'true');
+        rewards_1   = double(d.reward_alternative_1);
+        rewards_2   = double(d.reward_alternative_2);
+        is_choice_1 = strcmpi(strtrim(d.is_choice_alternative_1), 'true');
 
         % ── run both models (real MATLAB, both paths) ────────────────────
         % NOTE: COMPETITION_CATIE_schedule_choice_probability(_hetro) already
@@ -158,17 +146,6 @@ for si = 1:size(schedules, 1)
         % of ~1e-15 against the stored EDA reference).
         pc_pub = COMPETITION_CATIE_schedule_choice_probability_hetro(rewards_1, rewards_2, is_choice_1);
         pc_fix = COMPETITION_CATIE_schedule_choice_probability_hetro_FIXED(rewards_1, rewards_2, is_choice_1);
-
-        % ── sanity check: schedules 4/5/7 vs the stored EDA reference ─────
-        if ismember(sched_label, {'schedule_4','schedule_5','schedule_7'})
-            ref_rows = eda_ref(eda_ref.subject_file == string(fname) & eda_ref.schedule == string(sched_label), :);
-            if height(ref_rows) == N_TRIALS
-                [~, ro] = sort(ref_rows.trial_number);
-                ref_rows = ref_rows(ro, :);
-                dev = max(abs(pc_pub - ref_rows.catie_choice_probability));
-                max_ref_dev = max(max_ref_dev, dev);
-            end
-        end
 
         n_kept = n_kept + 1;
         row = struct();
@@ -188,15 +165,7 @@ end
 
 fprintf('\ntotal subjects kept: %d   total excluded: %d\n', numel(subj_rows), n_excluded_total);
 
-%% ── 5. Sanity check vs stored EDA reference ──────────────────────────────
-
-fprintf('\n%s\n', repmat('=', 1, 78));
-fprintf('SANITY CHECK: original-model output vs stored eda_with_catie_probabilities.csv\n');
-fprintf('%s\n', repmat('=', 1, 78));
-fprintf('max |deviation| (schedules 4/5/7 only) = %.3e  (expect ~1e-15; both were produced\n', max_ref_dev);
-fprintf('by the same unmodified original .m files, so this checks nothing but I/O fidelity)\n');
-
-%% ── 6. Assemble results table ────────────────────────────────────────────
+%% ── 4. Assemble results table ────────────────────────────────────────────
 
 T = struct2table([subj_rows{:}]);
 writetable(T, fullfile(results_dir, 'matlab_per_subject_metrics.csv'));

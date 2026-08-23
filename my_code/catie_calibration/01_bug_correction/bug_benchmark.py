@@ -49,7 +49,6 @@ KS = (0, 1, 2)
 HERE = pathlib.Path(__file__).parent
 OUT_DIR = HERE / "figures"
 DATA = HERE.parent / "data"
-EDA_CSV = HERE.parent.parent / "EDA_set" / "processing" / "eda_with_catie_probabilities.csv"
 
 PALETTE = {"published": "#d62728", "fixed": "#1f77b4"}
 
@@ -57,11 +56,7 @@ PALETTE = {"published": "#d62728", "fixed": "#1f77b4"}
 # ── data loading ─────────────────────────────────────────────────────────────────
 def load_split(name):
     """Return a tidy frame with subject_id, schedule, choices and reward schedules."""
-    if name == "eda":
-        df = pd.read_csv(EDA_CSV)
-        df["subject_id"] = df["schedule"] + "/" + df["subject_file"]
-    else:
-        df = pd.read_csv(DATA / f"cleaned_{name}.csv")
+    df = pd.read_csv(DATA / f"cleaned_{name}.csv")
     df["c1"] = df["is_biased_choice"].astype(str).str.upper() == "TRUE"
     df = df.sort_values(["subject_id", "trial_number"]).reset_index(drop=True)
     sizes = df.groupby("subject_id").size()

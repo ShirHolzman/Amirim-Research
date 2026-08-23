@@ -4,32 +4,32 @@ PHASE 2 -- CONDITIONAL CALIBRATION: WHICH PARTITION EXPLAINS THE GAP?
 model: corrected ("fixed") CATIE, k in {0,1,2}, published weighting
 data: EDA + Training + schedule_0 (Test held out for final evaluation)
 
-loaded 2,524 subjects, 252,400 trials, 9 schedules: ['schedule_0', 'schedule_11', 'schedule_2', 'schedule_3', 'schedule_4', 'schedule_5', 'schedule_6', 'schedule_7', 'schedule_9']
+loaded 2,528 subjects, 252,800 trials, 9 schedules: ['schedule_0', 'schedule_11', 'schedule_2', 'schedule_3', 'schedule_4', 'schedule_5', 'schedule_6', 'schedule_7', 'schedule_9']
 
 computing responsibility posteriors ...
-  [500/2524] subjects processed
-  [1000/2524] subjects processed
-  [1500/2524] subjects processed
-  [2000/2524] subjects processed
-  [2500/2524] subjects processed
-  [2524/2524] subjects processed
+  [500/2528] subjects processed
+  [1000/2528] subjects processed
+  [1500/2528] subjects processed
+  [2000/2528] subjects processed
+  [2500/2528] subjects processed
+  [2528/2528] subjects processed
 
 responsibility sum-to-1 max deviation: 8.216e-15 (correctness gate)
 
 ==============================================================================
 1. HEADLINE METRICS (fixed model, all trials pooled)
 ==============================================================================
-   E[p]       0.6340
-   E[log p]   -0.6550
+   E[p]       0.6339
+   E[log p]   -0.6551
    ECE        0.1540
-   ECE_q      0.1467
-   MCE        0.2858
+   ECE_q      0.1466
+   MCE        0.2854
    Brier      0.2260
-   accuracy   0.6666
-   n          249876
+   accuracy   0.6665
+   n          250272
 
-   E[p]     = 0.6340  95% CI [0.6294, 0.6385]  (subject-clustered)
-   E[log p] = -0.6550  95% CI [-0.6649, -0.6450]
+   E[p]     = 0.6339  95% CI [0.6293, 0.6384]  (subject-clustered)
+   E[log p] = -0.6551  95% CI [-0.6651, -0.6453]
 
    NOTE accuracy is near-vacuous here: argmax(p_alt1)==c_prev on ~99.4% of
    trials, so it essentially reports the repeat rate, not model quality.
@@ -37,13 +37,13 @@ responsibility sum-to-1 max deviation: 8.216e-15 (correctness gate)
 ==============================================================================
 2. PUBLISHED vs FIXED (does this chapter's conclusion depend on the fix?)
 ==============================================================================
-   E[p]      fixed 0.6340  published 0.6213  diff +0.0127  p=7.062e-281 ***
-   E[log p]  fixed -0.6550  published -0.6676  diff +0.0127  p=2.307e-122 ***
+   E[p]      fixed 0.6339  published 0.6212  diff +0.0126  p=4.969e-280 ***
+   E[log p]  fixed -0.6551  published -0.6677  diff +0.0126  p=2.138e-121 ***
 
    The central c_prev split, recomputed under the PUBLISHED model:
-     c_prev=0  n= 91,548  predicted 0.2411  empirical 0.4538  gap +0.2127
-     c_prev=1  n=158,328  predicted 0.8216  empirical 0.7346  gap -0.0870
-     aggregate gap +0.0228
+     c_prev=0  n= 91,752  predicted 0.2411  empirical 0.4535  gap +0.2125
+     c_prev=1  n=158,520  predicted 0.8216  empirical 0.7344  gap -0.0871
+     aggregate gap +0.0227
      R^2(c_prev) under published = 0.0905  (fixed model: see section 4)
    => the oppositely-signed split is present under BOTH models, so this
       chapter's conclusion does not depend on the Phase 1 correction.
@@ -54,10 +54,10 @@ responsibility sum-to-1 max deviation: 8.216e-15 (correctness gate)
 3. THE CENTRAL ARITHMETIC -- calibration gap conditional on c_prev
 ==============================================================================
  stratum      n  predicted  empirical       gap
-     0.0  91548   0.249118   0.453751  0.204633
-     1.0 158328   0.848200   0.734564 -0.113636
+     0.0  91752   0.249164   0.453538  0.204373
+     1.0 158520   0.848178   0.734425 -0.113753
 
-   aggregate gap: +0.0030  (near-zero: cancellation in the mean)
+   aggregate gap: +0.0029  (near-zero: cancellation in the mean)
    Section 8 tests directly whether this cancellation is what separates
    E[p] from E[log p], rather than asserting it.
 
@@ -67,34 +67,34 @@ responsibility sum-to-1 max deviation: 8.216e-15 (correctness gate)
    soft_argmax is excluded -- section 5 proves it encodes the outcome.
 
                 partition  n_groups       R2  increment_over_c_prev
-      c_prev x streak_bin        10 0.179765               0.075701
-c_prev x p_alt1_bin (20q)        21 0.149431               0.045368
-         p_alt1_bin (20q)        20 0.149337               0.045273
-  c_prev x trial_quintile        10 0.123773               0.019709
-              hard_argmax         4 0.120527               0.016463
-     c_prev x hard_argmax         4 0.120527               0.016463
- c_prev x reward_rate_bin         6 0.118498               0.014435
-        c_prev x schedule        18 0.109982               0.005918
-        c_prev (baseline)         2 0.104064               0.000000
-               streak_bin         5 0.005156              -0.098908
-           trial_quintile         5 0.002154              -0.101910
-          reward_rate_bin         3 0.000774              -0.103290
-                 schedule         9 0.000372              -0.103692
+      c_prev x streak_bin        10 0.179747               0.075773
+c_prev x p_alt1_bin (20q)        21 0.149628               0.045654
+         p_alt1_bin (20q)        20 0.149528               0.045554
+  c_prev x trial_quintile        10 0.123631               0.019657
+              hard_argmax         4 0.120434               0.016460
+     c_prev x hard_argmax         4 0.120434               0.016460
+ c_prev x reward_rate_bin         6 0.118341               0.014367
+        c_prev x schedule        18 0.109896               0.005922
+        c_prev (baseline)         2 0.103974               0.000000
+               streak_bin         5 0.005153              -0.098820
+           trial_quintile         5 0.002143              -0.101830
+          reward_rate_bin         3 0.000769              -0.103205
+                 schedule         9 0.000383              -0.103591
 
    computing the noise ceiling (5-fold grouped GB) ...
 
    Var(gap) = 0.2260
-   plug-in ceiling  1 - E[q(1-q)]/Var(gap)   = 0.2611
-   rigorous bound   1 - OOF Brier/Var(gap)   = 0.2684   (ceiling >= this)
-   ECE of q_hat = 0.0043 (well calibrated => plug-in trustworthy)
+   plug-in ceiling  1 - E[q(1-q)]/Var(gap)   = 0.2592
+   rigorous bound   1 - OOF Brier/Var(gap)   = 0.2677   (ceiling >= this)
+   ECE of q_hat = 0.0048 (well calibrated => plug-in trustworthy)
 
    So the achievable ceiling is ~0.26, NOT the ~0.18 a logistic-
    regression estimate suggests. An underfit q_hat is shrunk toward 0.5,
    overstating the noise and understating the ceiling -- low enough that
    observed partitions exceed it, which is how the error was caught.
 
-   best partition: c_prev x streak_bin R^2=0.1798 = 69% of the ~0.26 ceiling
-   c_prev alone:   R^2=0.1041 = 40% of ceiling
+   best partition: c_prev x streak_bin R^2=0.1797 = 69% of the ~0.26 ceiling
+   c_prev alone:   R^2=0.1040 = 40% of ceiling
 
 ------------------------------------------------------------------------------
    DECOMPOSITION: Var(gap|L) = Var(y|L) + Var(p|L) - 2Cov(y,p|L)
@@ -102,11 +102,11 @@ c_prev x p_alt1_bin (20q)        21 0.149431               0.045368
    different achievements and the ranking is not readable without this.
 ------------------------------------------------------------------------------
    partition                      R^2   E Var(y)   E Var(p)     E Cov
-   c_prev                      0.1041     0.2144     0.0101   +0.0110
-   hard_argmax                 0.1205     0.2040     0.0074   +0.0063
-   c_prev x streak_bin         0.1798     0.1912     0.0092   +0.0075
-   p_alt1_bin (20q)            0.1493     0.1931     0.0005   +0.0007
-   q_hat 50q (best y-pred)     0.0244     0.1653     0.0544   -0.0004
+   c_prev                      0.1040     0.2144     0.0101   +0.0110
+   hard_argmax                 0.1204     0.2040     0.0074   +0.0063
+   c_prev x streak_bin         0.1797     0.1912     0.0092   +0.0075
+   p_alt1_bin (20q)            0.1495     0.1931     0.0006   +0.0007
+   q_hat 50q (best y-pred)     0.0243     0.1655     0.0541   -0.0005
    (unconditional)             0.0000     0.2327     0.0934   +0.0500
 
    c_prev removes 89% of the variance in CATIE's
@@ -122,18 +122,18 @@ c_prev x p_alt1_bin (20q)        21 0.149431               0.045368
 
                 mean   count
 hard_argmax                 
-contingent_avg   0.0   68872
-exploration      0.0   19296
-heuristic        0.0    3380
-inertia          1.0  158328
+contingent_avg   0.0   69047
+exploration      0.0   19312
+heuristic        0.0    3393
+inertia          1.0  158520
 
    The Bayesian posterior fixes THAT degeneracy ...
                     mean   count
 soft_argmax                     
-contingent_avg  0.299182   53322
-exploration     0.890224   22546
-heuristic       0.779683    7698
-inertia         0.699309  166310
+contingent_avg  0.299388   53439
+exploration     0.890327   22567
+heuristic       0.779652    7706
+inertia         0.698973  166560
 
    ... but replaces it with a worse one. PROOF: regime r's unnormalised
    responsibility is w_r*P(y|r). For inertia P(alt1|inertia)=c_prev in {0,1},
@@ -147,16 +147,16 @@ inertia         0.699309  166310
 
                        mean   count
 c_prev soft_argmax                 
-0.0    contingent_avg   1.0   37369
+0.0    contingent_avg   1.0   37440
        exploration      1.0    2475
-       heuristic        1.0    1696
-       inertia          0.0   50008
-1.0    contingent_avg   0.0   15953
-       exploration      0.0   20071
-       heuristic        0.0    6002
-       inertia          1.0  116302
+       heuristic        1.0    1698
+       inertia          0.0   50139
+1.0    contingent_avg   0.0   15999
+       exploration      0.0   20092
+       heuristic        0.0    6008
+       inertia          1.0  116421
 
-   every cell mean in {0,1}: True     mismatches: 0 / 249,876
+   every cell mean in {0,1}: True     mismatches: 0 / 250,272
    soft_argmax is the repeat/switch indicator plus a 3-way tiebreak. It
    carries exactly one bit beyond c_prev and that bit IS the outcome, so
    any reliability curve drawn from it is reconstructible from the counts
@@ -172,7 +172,7 @@ c_prev soft_argmax
  schedule_4 0.597259 -0.734627 0.188019 0.185819 0.288521 0.257167  0.617971 19899        0.612996 -0.000784
  schedule_5 0.659642 -0.612877 0.159719 0.158083 0.385895 0.208260  0.698806 17424        0.608471  0.004141
  schedule_6 0.585740 -0.744613 0.182260 0.182397 0.278301 0.261394  0.608305 14256        0.604167 -0.002508
- schedule_7 0.581012 -0.769566 0.205351 0.207639 0.333480 0.270520  0.600615 11385        0.578217 -0.012945
+ schedule_7 0.580913 -0.768564 0.204244 0.205367 0.335882 0.270160  0.601392 11781        0.575079 -0.014415
  schedule_9 0.568673 -0.764068 0.179810 0.180962 0.235055 0.269068  0.594260 10593        0.552251 -0.004261
 schedule_11 0.570448 -0.765743 0.183199 0.180068 0.246316 0.269495  0.595263  8613        0.506908 -0.017798
 
@@ -186,16 +186,16 @@ schedule_11 0.570448 -0.765743 0.183199 0.180068 0.246316 0.269495  0.595263  86
 ==============================================================================
                          n  predicted  empirical       gap
 c_prev streak_bin                                         
-0.0    1           43110.0   0.274823   0.622060  0.347237
-       2           16177.0   0.275252   0.488657  0.213405
-       3            8182.0   0.260084   0.395991  0.135907
-       4-5          8102.0   0.231229   0.273760  0.042530
-       6+          15977.0   0.156754   0.085122 -0.071632
-1.0    1           42625.0   0.855402   0.597326 -0.258076
-       2           25401.0   0.825834   0.656195 -0.169639
-       3           16633.0   0.833781   0.709012 -0.124769
-       4-5         20666.0   0.842845   0.765751 -0.077094
-       6+          53003.0   0.859740   0.878347  0.018607
+0.0    1           43184.0   0.274801   0.621990  0.347188
+       2           16208.0   0.275246   0.488277  0.213032
+       3            8204.0   0.260161   0.395661  0.135500
+       4-5          8130.0   0.231288   0.273801  0.042512
+       6+          16026.0   0.157145   0.085299 -0.071846
+1.0    1           42699.0   0.855354   0.597133 -0.258221
+       2           25437.0   0.825764   0.656092 -0.169672
+       3           16654.0   0.833818   0.708899 -0.124919
+       4-5         20689.0   0.842837   0.765673 -0.077164
+       6+          53041.0   0.859742   0.878339  0.018597
 
    The gap is monotone in run length and REVERSES SIGN inside both c_prev
    strata. So the headline +0.205/-0.114 split is itself an average over
@@ -215,10 +215,10 @@ c_prev streak_bin
    hurting) E[p]. Recalibrating in three ways:
 
    forecast                               E[p]   E[log p]      ECE
-   CATIE as-is                          0.6340    -0.6550   0.1540
-   c_prev stratum rate                  0.5713    -0.6190   0.0000
-   c_prev x streak_bin rate             0.6176    -0.5630   0.0000
-   isotonic on p_alt1 (in-sample)       0.6119    -0.5694   0.0000
+   CATIE as-is                          0.6339    -0.6551   0.1540
+   c_prev stratum rate                  0.5712    -0.6191   0.0000
+   c_prev x streak_bin rate             0.6175    -0.5631   0.0000
+   isotonic on p_alt1 (in-sample)       0.6118    -0.5695   0.0000
 
    The dissociation is real: correcting the c_prev-conditional gap
    IMPROVES E[log p] while LOWERING E[p] -- exactly the trade the
@@ -236,8 +236,5 @@ FIGURES
   fig2_r2_partition_comparison.png
   fig3_gap_by_cprev_and_runlength.png
   fig4_ece_by_schedule.png
-  removed stale artifact: fig3_reliability_by_soft_mode.png
-  removed stale artifact: fig5_hard_vs_soft_attribution.png
-  removed stale artifact: gap_by_soft_mode.csv
 
 done.

@@ -1,0 +1,77 @@
+==============================================================================
+PER-SCHEDULE VALIDATION AGAINST THE PAPER'S REPORTED VALUES
+==============================================================================
+source: Data_resources/extracted_data/{E_p.md, E_log_p.md}  (paper Fig S5)
+scope : EDA -- schedules ['schedule_4', 'schedule_5', 'schedule_7']
+
+loaded cache 'eda': 496 subjects x 100 trials
+
+==============================================================================
+1. SCHEDULE MAPPING AND SAMPLE SIZES
+==============================================================================
+   The paper labels schedules 1..12; this repo labels them 0..11.
+   The mapping is VERIFIED against our subject counts, not assumed.
+
+   paper        ours            n reported   n ours   match
+   Schedule 5   schedule_4             201      201      OK
+   Schedule 6   schedule_5             176      176      OK
+   Schedule 8   schedule_7             119      119      OK
+
+   3/3 schedules match the reported n exactly.
+   => paper-k -> schedule_(k-1) mapping confirmed by n on all 3 schedules.
+
+==============================================================================
+2. IS TRIAL 1 INCLUDED IN THE PAPER'S AVERAGE?
+==============================================================================
+   Trial 1 is fixed at p=0.5 by the reference implementation, so including
+   it shifts both metrics. We do not know the paper's choice a priori --
+   we determine it empirically, by which one reproduces the reported values.
+
+   drop trial 1   mean|dE[p]| = 0.0013   mean|dE[log p]| = 0.0046
+   keep trial 1   mean|dE[p]| = 0.0006   mean|dE[log p]| = 0.0049
+
+   Using drop_first=True below (the convention used throughout Phases 1-3).
+
+==============================================================================
+3. REPORTED vs OUR PORT vs RE-FITTED (per eda schedule)
+==============================================================================
+   published port = bug-for-bug MATLAB  -> this is what should match the paper
+   corrected port = Phase 1 bug fix     -> a DIFFERENT model; must not match
+   re-fitted      = Phase 3 params, IN-SAMPLE here (fitted on pooled training)
+
+   sched             n  E[p] rep      pub     diff     corr    refit
+   schedule_4      201     0.587   0.5888  +0.0018   0.5973   0.5851
+   schedule_5      176     0.638   0.6390  +0.0010   0.6596   0.6406
+   schedule_7      119     0.569   0.5701  +0.0011   0.5809   0.5742
+
+   sched             n  E[lgp] rep      pub     diff     corr    refit
+   schedule_4      201      -0.755  -0.7495  +0.0055  -0.7346  -0.6200
+   schedule_5      176      -0.636  -0.6321  +0.0039  -0.6129  -0.5282
+   schedule_7      119      -0.781  -0.7765  +0.0045  -0.7686  -0.6379
+
+==============================================================================
+4. VERDICT
+==============================================================================
+   published port vs paper: max |dE[p]| = 0.0018, max |dE[log p]| = 0.0055  (tolerance 0.002)
+   E[p]     reproduced on all 3 schedules : YES
+   E[log p] reproduced on all 3 schedules : NO
+   NOTE: every E[log p] residual has the SAME sign (mean +0.0046).
+   A same-signed residual on every schedule is a SYSTEMATIC difference, not
+   rounding noise. E[p] matching while E[log p] does not means the port puts
+   the same average mass on the chosen action but spreads it slightly
+   differently across trials -- log-score punishes the low tail, E[p] does not.
+
+   Subject-weighted pooled over the 3 eda schedules:
+      reported (paper)   E[p] = 0.6008   E[log p] = -0.7190
+      published port     E[p] = 0.6021   E[log p] = -0.7143
+      corrected port     E[p] = 0.6155   E[log p] = -0.6996
+      re-fitted (held out)   E[p] = 0.6022   E[log p] = -0.5917
+
+   READ THIS BEFORE QUOTING ANY BASELINE E[p]:
+   The paper's numbers describe the PUBLISHED (buggy) model. Any comparison
+   of a re-fitted or recalibrated variant against the paper must state which
+   baseline it uses, because published and corrected differ materially.
+
+   table -> C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\paper_validation_eda.csv
+   figures -> C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\fig_validation_Ep_eda.png
+              C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\fig_validation_Elogp_eda.png

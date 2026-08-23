@@ -1,0 +1,174 @@
+==============================================================================
+PHASE 3 -- PARAMETER RE-FITTING, WITH RECALIBRATION AS THE CONTROL
+==============================================================================
+published (Dan, Plonsky & Loewenstein 2025, Methods):
+   tau=0.29, eps=0.3, phi=0.71, K=2 -- 'estimated from behavior'
+   and 'not fitted to this particular competition'
+reference gap to close: CATIE -0.678 vs best QL -0.569 = -0.109
+
+training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
+
+==============================================================================
+0. GOLDEN CHECK -- vectorised likelihood vs Phase 1 (blocking)
+==============================================================================
+   [PASS] training     E[p]=0.6216 (ph1 0.6216)   E[log p]=-0.6688 (ph1 -0.6688)
+   [PASS] eda          E[p]=0.6143 (ph1 0.6143)   E[log p]=-0.6995 (ph1 -0.6995)
+   [PASS] schedule_0   E[p]=0.6784 (ph1 0.6784)   E[log p]=-0.5799 (ph1 -0.5799)
+   All subsequent numbers use drop_first=True (trial 1 is p=0.5 by fiat).
+
+   baseline E[log p] at published params (trial 1 dropped):
+      training -0.6685 | EDA -0.6996 | schedule_0 -0.5787
+
+==============================================================================
+1. K ENUMERATION at published (tau, eps, phi)
+==============================================================================
+   The paper's Methods state K=2; the shipped code mixes K in {0,1,2}.
+   Measuring both, plus single K=0,1,3, on Training.
+
+   K                 E[log p] train   E[log p] EDA
+   K=0                      -0.7103        -0.7432
+   K=1                      -0.6888        -0.7233
+   K=2 (paper)              -0.6904        -0.7192
+   K=3                      -0.6847        -0.7143
+   mix {0,1,2} (code)         -0.6685        -0.6996
+   mix {0,1,2,3}            -0.6640        -0.6947
+
+==============================================================================
+2. MAXIMUM-LIKELIHOOD FIT of (tau, eps, phi) on TRAINING
+==============================================================================
+   8 restarts, best -E[log p] = 0.582365, spread across restarts = 1.27e-02
+   7/8 restarts reached the same optimum (within 1e-8)
+
+   param      published      fitted      change
+   tau           0.2900      0.1068     -0.1832
+   eps           0.3000      0.6280     +0.3280
+   phi           0.7100      0.3142     -0.3958
+
+   split            published      fitted      gain
+   training           -0.6685     -0.5824   +0.0862
+   EDA (select)       -0.6996     -0.5917   +0.1079
+   schedule_0 (OOD)     -0.5787     -0.5039   +0.0748
+
+   E[p]: published 0.6155 -> fitted 0.6022 on EDA
+
+==============================================================================
+3. IDENTIFIABILITY -- is there an eps/phi ridge?
+==============================================================================
+   Hessian eigenvalues (logit space): 2.624e-03, 1.244e-02, 2.519e-02
+   condition number = 9.6
+
+   approximate subject-clustered SEs (delta method, logit -> prob):
+      tau   0.1068  +/- 0.0483
+      eps   0.6280  +/- 0.0547
+      phi   0.3142  +/- 0.0354
+
+   parameter correlation matrix (tau, eps, phi):
+      tau   +1.000  -0.108  +0.029
+      eps   -0.108  +1.000  -0.067
+      phi   +0.029  -0.067  +1.000
+
+   |corr(eps, phi)| = 0.067 -> no strong ridge
+
+   computing (eps, phi) profile likelihood surface ...
+   surface max = -0.5824 at eps=0.617, phi=0.317
+
+==============================================================================
+4. THE CONTROL -- does re-fitting beat 1-parameter recalibration?
+==============================================================================
+   Fit each recalibrator on TRAINING, apply to EDA. If a content-free
+   1-parameter transform matches a 3-parameter psychological re-fit,
+   the 're-fitted psychology' is really just over-confidence.
+
+   model (fit on train, scored on EDA) #par   E[log p]      ECE   vs pub
+   published CATIE                       0    -0.6996   0.1782  +0.0000
+   + temperature (T=1.989)               1    -0.6225   0.0946  +0.0771
+   + Platt (2 par)                       2    -0.6187   0.0732  +0.0809
+   + isotonic (nonpar)                  np    -0.5938   0.0233  +0.1057
+   re-fitted (tau,eps,phi)               3    -0.5917   0.0326  +0.1079
+
+   1-par temperature  +0.0771  = 71% of the re-fit gain
+   nonpar isotonic    +0.1057  = 98% of the re-fit gain
+   3-par re-fit       +0.1079
+
+   The isotonic row is the decisive comparison, not temperature. Isotonic
+   is the BEST POSSIBLE monotone recalibration of p_alt1 -- it has zero
+   psychological content and cannot use any information beyond the ordering
+   of CATIE's own forecast. So:
+   => re-fitting essentially MATCHES nonparametric recalibration. The three
+      fitted parameters are buying CALIBRATION, not better psychology:
+      almost all of the gain is recoverable by monotonically squashing the
+      published model's probabilities. Fitted values should NOT be read as
+      revised estimates of exploration/inertia tendencies.
+
+   NOTE E[p] moves the OPPOSITE way (0.6158 -> 0.6027): the fit trades
+   mean-probability accuracy for log-score accuracy, which is exactly the
+   E[p]/E[log p] dissociation Phase 2 identified.
+
+==============================================================================
+5. RUN-LENGTH-DEPENDENT INERTIA (the extension Phase 2 demands)
+==============================================================================
+   Phase 2: the calibration gap reverses sign with run length inside BOTH
+   c_prev strata, which no constant phi -- and no asymmetric phi, one per
+   side of c_prev -- can represent. Fitting phi_short / phi_long split at
+   a threshold, all else free.
+
+   threshold     phi_short  phi_long     tau     eps     train       EDA
+   >= 2             0.1696    0.4883  0.1152  0.6393   -0.5760   -0.5860
+   >= 3             0.2042    0.6483  0.1057  0.6519   -0.5735   -0.5848
+   >= 4             0.2264    0.8018  0.0982  0.6622   -0.5723   -0.5842
+   >= 5             0.2452    0.9158  0.0969  0.6666   -0.5723   -0.5843
+   >= 6             0.2570    1.0000  0.0951  0.6647   -0.5722   -0.5845
+
+   best on EDA: threshold >= 4, phi_short=0.2264, phi_long=0.8018
+   EDA E[log p]: published -0.6996 -> re-fit -0.5917 -> run-length -0.5842
+   likelihood-ratio vs 3-par re-fit: chi2(1) = 2944.0 (p < 1e-10 for anything above ~45)
+
+==============================================================================
+5b. DOES THE FIT REPAIR PHASE 2's c_prev SPLIT? (the direct link)
+==============================================================================
+   Phase 2 found gaps of +0.205 (c_prev=0) and -0.114 (c_prev=1) that
+   cancel to +0.003. A fit that genuinely corrects the psychology should
+   shrink BOTH, not just rebalance them.
+
+   model                           gap c_prev=0  gap c_prev=1  aggregate
+   published                            +0.2101       -0.1417    -0.0023
+   re-fitted (tau,eps,phi)              -0.0061       -0.0385    -0.0257
+   + run-length phi (>=4)               -0.0091       -0.0360    -0.0253
+
+   Both strata shrink substantially -- the fit is not merely rebalancing
+   one against the other. But see section 4: an assumption-free isotonic
+   recalibration achieves nearly the same log-score, so most of this
+   repair is calibration rather than newly-correct psychology.
+
+==============================================================================
+6. PER-SCHEDULE FITS -- do the parameters transfer, or drift?
+==============================================================================
+   schedule           n      tau      eps      phi  E[logp] fit
+   schedule_11       87   0.1739   0.9264   0.3645      -0.6561
+   schedule_2       538   0.2056   0.7344   0.3044      -0.6041
+   schedule_3       607   0.0694   0.4424   0.3137      -0.5197
+   schedule_6       144   0.0984   0.7740   0.2269      -0.6208
+   schedule_9       107   0.1271   0.9119   0.3532      -0.6531
+
+   spread across schedules: tau 0.069-0.206, eps 0.442-0.926, phi 0.227-0.364
+
+==============================================================================
+7. MODEL LADDER (all scored on EDA, fitted on Training)
+==============================================================================
+   model                            #par  E[log p] EDA    vs M0
+   M0 published params                 0       -0.6996  +0.0000
+   M1 + temperature (control)          1       -0.6225  +0.0771
+   M2 re-fitted (tau,eps,phi)          3       -0.5917  +0.1079
+   M3 + run-length phi (>=4)           4       -0.5842  +0.1154
+
+   For scale, the paper's CATIE-vs-best-QL gap is -0.109.
+   Total gain here (M0 -> M3): +0.1154 = 106% of that gap.
+
+==============================================================================
+FIGURES
+==============================================================================
+  fig1_profile_likelihood.png
+  fig2_model_ladder.png
+  fig3_per_schedule_fits.png
+
+done.

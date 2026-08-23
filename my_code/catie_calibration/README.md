@@ -21,9 +21,10 @@ catie_calibration/
 ├── golden_test.py        BLOCKING correctness gate (run this first)
 ├── data/                 generated, gitignored
 ├── matlab/               independent MATLAB validation -- see matlab/README.md
+├── build_cache.py        precompute parameter-free state tensors -> cache/ (Phase 3+)
 ├── 01_bug_correction/    Phase 1 -- the published likelihood bug (done)
 ├── 02_mode_calibration/  Phase 2 -- which partition explains the miscalibration (done)
-├── 03_parameter_fitting/ Phase 3 -- re-fitting vs post-hoc calibration
+├── 03_parameter_fitting/ Phase 3 -- re-fitting vs post-hoc calibration (done)
 ├── 04_model_extension/   Phase 4 -- asymmetric inertia, lapse, soft CA
 └── 05_nn_ceiling/        Phase 5 -- how much predictable structure remains
 ```
@@ -41,7 +42,10 @@ python my_code/catie_calibration/01_bug_correction/bug_benchmark.py
 `golden_test.py` and `matlab/` together give five independent layers of validation,
 not one check repeated five times:
 
-1. The `"published"` port reproduces the stored MATLAB CSV end-to-end (2.2e-15).
+1. The `"published"` port reproduces ORIGINAL, unmodified MATLAB, called live (not a
+   stored CSV), across all 12 schedules -- hetero mixture and each single-`k` model
+   (2.331e-15, pooled). The independent monolithic reference (item 2) is checked
+   against that same live MATLAB directly too (6.661e-16).
 2. A from-scratch, single-pass monolithic reimplementation (`golden_test.py`,
    `_reference_catie_probability`) that never splits state from parameters agrees
    with the production split (`state_tensors` + `probability_from_state`), for
@@ -50,7 +54,7 @@ not one check repeated five times:
    (3.3e-16) -- checked at runtime, not just true by algebraic construction.
 4. A second, completely independent implementation -- a minimally-patched copy of
    the real MATLAB source, run in real MATLAB, not Python -- reproduces every
-   published-vs-fixed E[p]/E[log p] number exactly across all 3,328 subjects
+   published-vs-fixed E[p]/E[log p] number exactly across all 3,332 subjects
    (`matlab/README.md` §1).
 5. `state_tensors()`'s individual outputs (`H`, `b`, `c_prev`, `s_prev`,
    `sbar_prev`, `g`) match MATLAB's own internal loop variables **element by
@@ -75,13 +79,16 @@ on test.
 | Split | Subjects | Schedules |
 |---|---|---|
 | training | 1,483 | 2, 3, 6, 9, 11 |
-| EDA | 492 | 4, 5, 7 |
+| EDA | 496 | 4, 5, 7 |
 | test | 804 | 1, 8, 10 |
 | schedule_0 | 549 | 0 (the 69.0% empirically-tuned benchmark) |
 
-Per-schedule subject counts reproduce the paper's reported N exactly for all nine
-schedules, which independently validates the exclusion rule (drop a subject who chose
-one side fewer than 5 times).
+Per-schedule subject counts reproduce the paper's reported N exactly for **all twelve**
+schedules (3,332 total, the paper's own figure). Data comes from the competition's
+organized release (`Data_resources/.../simple_format_data/`); the exclusion rule is the
+curators' own `..._INVALID_BIAS.csv` tag rather than an inferred threshold. See
+`../completed_issues/SCHEDULE_N_RECONCILIATION.md` and
+`../completed_issues/REORGANIZATION_PLAN.md`.
 
 ## Two things that are easy to get wrong
 
@@ -122,14 +129,14 @@ sequence.
 near-zero personal SD against the 1.5 s hardware floor. At the robust threshold (X=10%)
 the Surprise–Routine contrast is n.s. (d=0.02, p≈0.82). The X=5% bins are literally the
 195 floor-clipped and 509 ceiling-clipped rows, nearly all at trials 1–3 where every
-participant is slow. See `my_code/EDA_set/rt_analysis/`.
+participant is slow. See `my_code/initial_investigation/rt_analysis/`.
 
 **Current-choice side switches.** `is_surprise ⊂ {switch trials}` by construction, since
 φ=0.71 means a repeated choice can never receive p < 0.15. Measured
 P(surprise | no switch) = 0.000 exactly. Additionally `BLUE_RIGHT_LEFT_RED` is constant
 within every subject, so `side_choice ≡ is_biased_choice` up to relabelling — motor and
 value inertia are not separable in this dataset. Any feature reading the current trial's
-choice is circular. See `my_code/EDA_set/surprise_analysis/`.
+choice is circular. See `my_code/initial_investigation/surprise_analysis/`.
 
 ## Conventions
 

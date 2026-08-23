@@ -1,10 +1,13 @@
 # ── Individual subject data files (large volume; regenerable from source) ──────
-my_code/EDA_set/schedule_4/
-my_code/EDA_set/schedule_5/
-my_code/EDA_set/schedule_7/
+# Copies of Data_resources/COMPETITION_data_restricted/simple_format_data/
+my_code/EDA_set/
 my_code/Training_set/
 my_code/Test_set/
-my_code/schedule_0/
+my_code/Schedule0_set/
+# Archived first-investigation folder keeps its own raw copies
+my_code/initial_investigation/schedule_4/
+my_code/initial_investigation/schedule_5/
+my_code/initial_investigation/schedule_7/
 
 # ── Generated output data files (CSV; regenerable by running the wrapper) ──────
 my_code/catie_results/*.csv
@@ -15,6 +18,7 @@ my_code/catie_calibration/cache/
 my_code/catie_calibration/**/*.csv.gz
 # matlab/results/*.csv are small (<400KB) and kept tracked as evidence, EXCEPT:
 my_code/catie_calibration/matlab/results/state_tensors_matlab.csv
+my_code/catie_calibration/matlab/results/original_reference_all_schedules.csv
 
 # ── Competition analysis source (lives in its own separate repository) ─────────
 Data_resources/competition_analysis-main/

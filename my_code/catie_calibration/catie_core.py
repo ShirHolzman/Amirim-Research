@@ -10,8 +10,8 @@ Reference implementation being ported:
 
 Two behaviours are exposed via `mode`:
 
-    "published"  bug-for-bug faithful to the MATLAB above. Reproduces
-                 my_code/EDA_set/processing/eda_with_catie_probabilities.csv
+    "published"  "bug-for-bug" faithful to the MATLAB above. Reproduces
+                 my_code/initial_investigation/processing/eda_with_catie_probabilities.csv
                  to ~2e-15 (see golden_test.py).
 
     "fixed"      corrects the trend/heuristic branch. In the MATLAB, lines 108-109
@@ -268,14 +268,14 @@ def probability_from_state(state, tau=TAU, epsilon=EPSILON, phi=PHI, phi_2=None,
     Trial 1 is fixed at 0.5 (MATLAB line 103).
     """
     p_exp = epsilon * (1.0 + state.s_prev + state.sbar_prev) / 3.0
-    th = tau * state.H
+    th = tau * state.H                                   # decide: heuristic weight
 
     if phi_2 is None:
         phi_eff = phi
     else:
         phi_eff = np.where(state.c_prev > 0.5, phi, phi_2)
 
-    inner = phi_eff * state.c_prev + (1.0 - phi_eff) * state.g
+    inner = phi_eff * state.c_prev + (1.0 - phi_eff) * state.g  # inertia vs CA value
     p1 = th * state.b + (1.0 - th) * (0.5 * p_exp + (1.0 - p_exp) * inner)
     p1 = np.asarray(p1, dtype=float).copy()
     p1[0] = 0.5
@@ -300,14 +300,20 @@ def mode_weights(state, tau=TAU, epsilon=EPSILON, phi=PHI):
     "chose alt 1", which is a deterministic function of c_prev for the inertia term
     (identically 0 whenever c_prev==0) and therefore cannot be used to ask "which
     regime actually explains the choice that was made" without that confound.
+
+    Return value, read as a question per regime: e.g. w_inertia answers "how
+    likely, according to CATIE's own theory, is it that the person was in
+    inertia-mode when they made this choice" -- as a PRIOR, before the actual
+    choice is used as evidence. (Combine with mode_contributions for the
+    posterior version of that question.)
     """
     p_exp = epsilon * (1.0 + state.s_prev + state.sbar_prev) / 3.0
     th = tau * state.H
     rest = 1.0 - th
-    w_heuristic = th
-    w_exploration = rest * p_exp
-    w_inertia = rest * (1.0 - p_exp) * phi
-    w_contingent = rest * (1.0 - p_exp) * (1.0 - phi)
+    w_heuristic = th                                   # decide: trend fires?
+    w_exploration = rest * p_exp                        # decide: explore fires?
+    w_inertia = rest * (1.0 - p_exp) * phi               # decide: inertia fires?
+    w_contingent = rest * (1.0 - p_exp) * (1.0 - phi)    # decide: else, use CA
     return w_heuristic, w_exploration, w_inertia, w_contingent
 
 
@@ -326,10 +332,10 @@ def mode_contributions(state, tau=TAU, epsilon=EPSILON, phi=PHI):
     p_exp = epsilon * (1.0 + state.s_prev + state.sbar_prev) / 3.0
     th = tau * state.H
     rest = 1.0 - th
-    heuristic = th * state.b
-    exploration = rest * 0.5 * p_exp
-    inertia = rest * (1.0 - p_exp) * phi * state.c_prev
-    contingent = rest * (1.0 - p_exp) * (1.0 - phi) * state.g
+    heuristic = th * state.b                             # value: b, trend verdict
+    exploration = rest * 0.5 * p_exp                      # value: 0.5, random side
+    inertia = rest * (1.0 - p_exp) * phi * state.c_prev    # value: c_prev, repeat
+    contingent = rest * (1.0 - p_exp) * (1.0 - phi) * state.g  # value: g, CA rule
     return heuristic, exploration, inertia, contingent
 
 
