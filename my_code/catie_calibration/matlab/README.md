@@ -1,11 +1,22 @@
 # MATLAB validation
 
-Two independent things are validated here, in two subsections below:
+Four independent things are validated here, in the subsections below:
 1. **The bug correction** (`run_bug_comparison_all_schedules.m`) -- does fixing the
    three index errors actually improve E[p]/E[log p], measured in real MATLAB?
 2. **`state_tensors()` itself** (`export_state_tensors.m` /
    `verify_state_tensors.py`) -- element-by-element, does catie_core.py's internal
    recursion match MATLAB's own loop variables, not just the final probability?
+3. **The k-mixture / BMA step** (`export_bma_mixing_inputs.m` /
+   `verify_bma_mixing.py`) -- given MATLAB's own per-agent probabilities, does
+   `mix_agents()` combine them the way `hetro.m` does?
+4. **The headline E[log p]** (`report_original_elogp.m`) -- what does the paper's
+   own aggregation function report, called directly?
+
+Together these cover the three stages of the likelihood pipeline separately --
+state recursion (2), per-trial probability (1), k-mixture (3) -- plus the
+end-to-end aggregate (4). `../golden_test.py` check 1 covers the composition of
+all three; these exist because a composition check alone cannot localise a
+fault, and could in principle be passed by two errors that cancel.
 
 ## 1. Validation of the bug correction
 
@@ -160,3 +171,148 @@ not two models × 3). It only prints once per *schedule* (not per file), so a
 multi-minute silence while it works through a large schedule is expected, not a
 hang -- confirmed by checking the process's CPU time was still climbing during
 one such stretch.
+
+---
+
+## 3. Isolated validation of the k-mixture (Bayesian model averaging)
+
+Sections 1-2 and `../golden_test.py` leave one gap. golden_test compares the
+**end** of the pipeline; `verify_state_tensors.py` covers the **start** (the
+state recursion). Neither isolates the final stage: the k∈{0,1,2} mixture in
+`COMPETITION_CATIE_schedule_choice_probability_hetro.m:20-25`. A mixing error
+compensated by a recursion error would pass both.
+
+This section closes that gap by handing Python the per-agent probability matrix
+**MATLAB itself built**, so the only thing compared is the mixing arithmetic.
+
+### The substantive point: the two implementations mix in different spaces
+
+`COMPETITION_CATIE_schedule_choice_probability.m` returns **P(choice actually
+made)**, not P(alt 1) — its lines 136-139. So `hetro.m:25` forms its weighted
+average in *choice* space. `catie_core.mix_agents()` instead keeps P(alt 1) and
+mixes in *alt-1* space, converting afterwards via `p_of_observed_choice()`.
+
+These agree only because the BMA weights are a convex combination (they sum to
+1 per column), which makes "mix then flip" equal "flip then mix":
+
+```
+sum_a w_a (1 - P_a) = 1 - sum_a w_a P_a     iff  sum_a w_a = 1
+```
+
+That identity is the translation's load-bearing assumption, so it is checked
+numerically here rather than argued on paper — including a direct check that
+the weights really do sum to 1.
+
+### Files
+
+| File | Role |
+|---|---|
+| `export_bma_mixing_inputs.m` | Calls the unmodified original functions and dumps both the **input** to the mixing (the 3×100 per-k probability matrix, reproducing `hetro.m`'s own `K = 0:2` loop only to capture what `hetro.m` computes internally but does not return) and its **output** |
+| `verify_bma_mixing.py` | Feeds that exact matrix to `mix_agents()` and compares only the mixing; also runs four mutation controls |
+| `results/bma_mixing_verification.txt` | Result transcript |
+| `results/bma_mixing_reference.csv` | The exported matrix (6.9 MB, gitignored — regenerable) |
+
+The exporter writes `%.17g`, **not** `writetable`, which serialises doubles at
+~15 significant digits. At `writetable` precision the comparison would have a
+~1e-16 floor — exactly the scale being tested, so it could mask or manufacture
+a discrepancy. `%.17g` round-trips an IEEE double exactly.
+
+### Result
+
+600 subjects × 100 trials, sampled evenly across all 12 schedules:
+
+```
+  [OK] mix_agents(published) -> choice space  vs  MATLAB    2.00e-15
+  [OK] literal choice-space transcription     vs  MATLAB    2.00e-15
+  [OK] alt-1-space route  vs  choice-space route            5.55e-16
+  [OK] per-trial weight columns sum to 1                    3.33e-16
+  [OK] time-averaged w_bar sums to 1                        4.44e-16
+```
+
+### Mutation controls
+
+A pass only means something if the test could have failed, so four plausible
+mistranslations are run through the same comparison. All four are caught:
+
+| Mutation | Max deviation |
+|---|---|
+| cumprod over P(alt 1) instead of P(choice made) | 2.41e-01 |
+| per-trial weights (`hetro.m:26`, the commented-out line) | 1.71e-01 |
+| uniform 1/3 weights (no BMA at all) | 1.43e-01 |
+| un-lagged weights | 1.81e-03 |
+
+**Two findings worth recording.**
+
+*"Forgot the prior column" and "forgot the `1:end-1` shift" are the same error.*
+These were initially written as two independent controls and returned
+bit-identical deviations. Prepending `ones(n_sub_agents,1)` at `hetro.m:20` and
+then dropping the last column at `hetro.m:22` is precisely what lags the weight
+matrix by one trial — the prior column *is* the lag. This is now asserted in the
+script (0.000e+00), so the control list cannot silently double-count.
+
+*That lag is worth only 1.81e-03* — roughly 100× smaller than the other three
+mutations. Because the published code time-averages the weights over all 100
+trials (`mean(...,2)`), shifting by one only swaps the flat-prior column for the
+final column and divides the difference by 100. So the same quirk that discards
+the per-trial adaptivity `hetro.m`'s own comment describes also makes the code
+nearly insensitive to the off-by-one its `1:end-1` was guarding against. This is
+consistent with the separately measured result that the "intended" per-trial
+variant scores slightly *worse* (E[log p] −0.6992 → −0.7042).
+
+### How to run
+
+```
+matlab -batch "run('my_code/catie_calibration/matlab/export_bma_mixing_inputs.m')"
+python my_code/catie_calibration/matlab/verify_bma_mixing.py
+```
+
+The export takes a couple of minutes. It scores each subject six times: three
+explicit per-k calls to capture the mixing input, plus `hetro`'s own three
+internal ones. That duplication is deliberate — `hetro.m` does not return its
+intermediate matrix, and instrumenting it would mean modifying an original file.
+
+---
+
+## 4. The headline E[log p], from the paper's own functions
+
+`report_original_elogp.m` reports the aggregate E[log p] by **calling** the
+original unmodified MATLAB for both steps, rather than reimplementing either:
+
+- `COMPETITION_CATIE_schedule_choice_probability_hetro.m` — per-subject
+  P(choice made), the same function `COMPETITION_empirical_decisions_probabilities.m:58`
+  calls.
+- `permutation_test_and_bootstrap.m` — the aggregation, the same function
+  `COMPETITION_main.m:202` feeds `log(catie_probabilities)` into.
+
+`permutation_test_and_bootstrap` has no return value (it only `fprintf`s), so it
+is called as `(all_log_p, all_log_p)` and the mean is regexp'd back out of its
+own printed report via `evalc`. The number is produced by *its* code, not ours.
+
+`COMPETITION_empirical_decisions_probabilities.m` itself cannot be called: it
+hardcodes an absolute path to another machine's disk (`C:\Users\ojd5\...`). The
+per-subject loop over our schedule folders is necessary glue for that, but every
+actual computation is delegated to the original functions.
+
+### Result
+
+All 12 schedules, 3,332 subjects, 333,200 trials:
+
+| | E[log p] |
+|---|---|
+| Original unmodified MATLAB, published | **−0.6733** |
+| `catie_core.py` port, published | −0.6733 |
+| Paper, Tables S1/S2 | −0.678 |
+
+The port and real MATLAB agree. The ~+0.0047 residual against the paper is real,
+now reproduced two independent ways, and remains unexplained — see
+`../REVIEW_PLAN.md`. It does not affect the published-vs-corrected comparison,
+which is paired on identical data either way.
+
+### How to run
+
+```
+matlab -batch "run('my_code/catie_calibration/matlab/report_original_elogp.m')"
+```
+
+Requires the Statistics and Machine Learning Toolbox (`datasample`, used by
+`permutation_test_and_bootstrap.m`'s bootstrap). Takes about a minute.
