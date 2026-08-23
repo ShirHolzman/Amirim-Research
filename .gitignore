@@ -19,6 +19,7 @@ my_code/catie_calibration/**/*.csv.gz
 # matlab/results/*.csv are small (<400KB) and kept tracked as evidence, EXCEPT:
 my_code/catie_calibration/matlab/results/state_tensors_matlab.csv
 my_code/catie_calibration/matlab/results/original_reference_all_schedules.csv
+my_code/catie_calibration/matlab/results/bma_mixing_reference.csv
 
 # ── Competition analysis source (lives in its own separate repository) ─────────
 Data_resources/competition_analysis-main/

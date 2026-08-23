@@ -1,0 +1,33 @@
+MATLAB reference : C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\matlab\results\bma_mixing_reference.csv
+rows             : 60,000
+subjects         : 600
+schedules        : 12
+tolerance        : 1e-12
+
+==============================================================================
+1. mix_agents() vs the ORIGINAL hetro.m, on identical inputs
+==============================================================================
+  [OK  ] mix_agents(published) -> choice space  vs  MATLAB          max dev 1.998e-15
+  [OK  ] literal choice-space transcription     vs  MATLAB          max dev 1.998e-15
+  [OK  ] alt-1-space route  vs  choice-space route                  max dev 5.551e-16
+
+==============================================================================
+2. Convexity precondition (what licenses mixing in a different space)
+==============================================================================
+  [OK  ] per-trial weight columns sum to 1                          max dev 3.331e-16
+  [OK  ] time-averaged w_bar sums to 1                              max dev 4.441e-16
+
+==============================================================================
+3. Mutation controls -- each MUST differ, or the test has no power
+==============================================================================
+  [OK  ] un-lagged weights (== dropping hetro.m:20's prior column)  max dev 1.813e-03
+  [OK  ] cumprod over P(alt 1) instead of P(choice made)            max dev 2.406e-01
+  [OK  ] per-trial weights (hetro.m:26, the commented-out line)     max dev 1.710e-01
+  [OK  ] uniform 1/3 weights (no BMA at all)                        max dev 1.426e-01
+
+   (identity check, so no control is double-counted:)
+  [OK  ] 'no prior column' and 'no lag' are the same weight matrix  max dev 0.000e+00
+
+==============================================================================
+PASS -- the BMA translation is exact, and the test can detect it being wrong.
+==============================================================================
