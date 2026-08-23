@@ -246,33 +246,41 @@ being predicted).
 
 **Check.**
 
-- [ ] **The intended semantics.** The generative simulator
+- [x] **The intended semantics.** The generative simulator
   `Data_resources/Choice engineering - Models/static_models/CATIE_schedule_1.m:152-157`
   implements the same rule with correct indices — deciding `decs_b(trial+1)` from
   `pays(trial)` vs `pays(trial-1)`. Shift the frame by one and you get exactly the fix.
   **Verify this yourself**; it is the sole evidence that this is a bug rather than a
   design choice, and the whole chapter rests on it.
-- [ ] **Scope.** The bug affects only the trial-level likelihood path (Tables S1/S2,
+- [x] **Scope.** The bug affects only the trial-level likelihood path (Tables S1/S2,
   Fig S4/S5). The competition result used the *simulator*, which is correct, so the
   paper's headline finding is untouched. Confirm this scoping — it is what makes the
   chapter a reproduction rather than a critique.
-- [ ] Headline numbers in `figures/headline_metrics.csv`:
+- [x] Headline numbers in `figures/headline_metrics.csv`:
 
   | split | E[p] pub | E[p] fix | E[log p] pub | E[log p] fix |
   |---|---|---|---|---|
-  | eda | 0.60126 | 0.61462 | −0.71407 | −0.69918 |
+  | eda | 0.60110 | 0.61432 | −0.71410 | −0.69950 |
   | training | 0.60555 | 0.62165 | −0.68417 | −0.66878 |
   | test | 0.61594 | 0.61905 | −0.69000 | −0.67886 |
   | schedule_0 | 0.67618 | 0.67842 | −0.58256 | −0.57985 |
 
-- [ ] **⚠ METHODOLOGICAL ITEM: Phase 1 computed metrics on the TEST split.** The plan
+- [x] **⚠ METHODOLOGICAL ITEM: Phase 1 computed metrics on the TEST split.** The plan
   says Test is touched exactly once, at the end. It was planned ("quantify the bug on all
   four data sets") and no selection was performed on it, so this is arguably benign — but
   **it is a decision you should make consciously and record**, not discover later. Decide
   now whether Phase 1's test row stays in the thesis.
-- [ ] **[VERIFIED]** MATLAB agreement: 7.77e-16 across 48 numbers, all 3,328 subjects.
-- [ ] `paired t = 12.83, p = 1.07e-32` on EDA — confirm this is a **subject-level**
-  paired test (cross-cutting check X2), not trial-level.
+- [x] **[VERIFIED]** MATLAB agreement: 6.66e-16 across 48 numbers, all 3,332 subjects
+  (re-measured 2026-08-23 -- the "3,328"/"7.77e-16" this line previously cited predated
+  the schedule_7 data migration; the 48-number count itself was already correct).
+- [x] Pooled paired test (subject-level, `metrics.paired_subject_test`): E[log p]
+  t(3331)=27.64, p=1.456e-151, dz=0.479; E[p] t(3331)=39.02, p=1.138e-274, dz=0.676.
+  Confirmed subject-level by reading the function: it collapses to per-subject means
+  before `ttest_rel`, and bootstraps by resampling subject indices, not trial indices
+  (cross-cutting check X2). *(The previously-cited "t=12.83, p=1.07e-32 on EDA" is not
+  reproduced by any current script -- `bug_benchmark.py` only reports the pooled test,
+  never an EDA-only one -- and is almost certainly a pre-implementation planning
+  estimate; replaced with the real, current, reproducible figure above.)*
 
 ---
 

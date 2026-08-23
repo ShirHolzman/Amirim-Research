@@ -22,13 +22,13 @@ the three index errors is the only change made.
 
 Parameters held at published values (τ=0.29, ε=0.30, φ=0.71, k∈{0,1,2}). Nothing fitted.
 
-| Pooled, 12 schedules, 3,328 subjects | Published | Corrected | Δ |
+| Pooled, 12 schedules, 3,332 subjects | Published | Corrected | Δ |
 |---|---|---|---|
-| E[p] | 0.6191 | 0.6293 | +0.0103 |
-| E[log p] | −0.6732 | −0.6610 | +0.0122 |
+| E[p] | 0.6190 | 0.6293 | +0.0103 |
+| E[log p] | −0.6733 | −0.6611 | +0.0122 |
 
-Subject-clustered paired tests: E[p] t(3327)=39.09, p=2.4e-275, dz=0.68;
-E[log p] t(3327)=27.74, p=1.7e-152, dz=0.48.
+Subject-clustered paired tests: E[p] t(3331)=39.02, p=1.14e-274, dz=0.68;
+E[log p] t(3331)=27.64, p=1.46e-151, dz=0.48.
 
 - E[log p] improves on **all 12 schedules** individually (+0.0027 to +0.0205).
 - 16.63% of trials are trend-testable; the corrected branch selects alternative 1 on
@@ -40,20 +40,25 @@ E[log p] t(3327)=27.74, p=1.7e-152, dz=0.48.
 competition result is unaffected — schedule optimisation and bias prediction use the
 *simulator*, which reads `pays(trial)` only after assignment.
 
-**Open discrepancy.** The port reproduces the paper's E[p] (0.6191 vs 0.619) but E[log p]
-differs by 0.005 (−0.6732 vs −0.678), which is unexplained. My cohort is 3,328 subjects
-against the paper's 3,332. No pooling convention tested accounts for it. This does not
-affect the conclusion, since the published-vs-corrected comparison is paired on identical
-data. Raised with supervisors in `VERIFICATION_MEMO.md`.
+**Open discrepancy.** The port reproduces the paper's E[p] (0.6190 vs 0.619) but E[log p]
+differs by ~0.005 (−0.6733 vs −0.678), which is unexplained. This is *not* a cohort-size
+artifact: the pipeline migrated onto the competition's organized data release (see
+`../../completed_issues/SCHEDULE_N_RECONCILIATION.md`), and the cohort now matches the
+paper's 3,332 exactly on all 12 schedules -- yet the residual is essentially unchanged.
+That migration therefore *rules out* the subject-count-mismatch hypothesis rather than
+explaining the gap. It does not affect this chapter's conclusion, since the
+published-vs-corrected comparison is paired on identical data either way. Raised with
+supervisors in `VERIFICATION_MEMO.md`.
 
 ## Validation
 
-The Python port reproduces the stored MATLAB output to **2.2×10⁻¹⁵** across all 49,200
-EDA trials. Per-schedule subject counts reproduce the paper's reported N exactly for all
-nine checkable schedules. Run `../golden_test.py` — it is a blocking gate.
+The Python port reproduces ORIGINAL, unmodified MATLAB, called live, to **2.33×10⁻¹⁵**
+across all 12 schedules (3,332 subjects, 333,200 trials) -- see `../golden_test.py`
+check 1. Per-schedule subject counts reproduce the paper's reported N exactly on all
+12 schedules. Run `../golden_test.py` — it is a blocking gate.
 
 **Independently confirmed in real MATLAB**, not just the Python port: `../matlab/` runs
-the unmodified original `.m` file against a minimally-patched copy across all 3,328
+the unmodified original `.m` file against a minimally-patched copy across all 3,332
 subjects and reproduces every number in this document exactly (pooled and per-schedule).
 See `../matlab/README.md` — its own sanity check first caught a bug in the *driver*
 script (not the model), worth reading as an example of not trusting a first run.
