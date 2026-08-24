@@ -62,7 +62,7 @@ import pandas as pd
 HERE = pathlib.Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
 from catie_core import EPSILON, PHI, TAU, catie_hetero, state_tensors  # noqa: E402
-import metrics as M  # noqa: E402
+import metrics  # noqa: E402
 
 TRIAL_CSV = HERE / "figures" / "trial_level.csv.gz"
 DATA_DIR = HERE.parent / "data"
@@ -70,14 +70,14 @@ DATA_DIR = HERE.parent / "data"
 
 def load_choices() -> pd.DataFrame:
     """Same population as conditional_calibration.py (EDA + Training + schedule_0)."""
-    frames = []
+    split_frames = []
     for name in ("eda", "training", "schedule_0"):
-        df = pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")
-        frames.append(df[["subject_id", "trial_number", "biased_reward",
-                          "unbiased_reward", "is_biased_choice"]])
-    out = pd.concat(frames, ignore_index=True)
-    out["chose_biased"] = (out["is_biased_choice"].astype(str).str.upper() == "TRUE").astype(int)
-    return out.sort_values(["subject_id", "trial_number"]).reset_index(drop=True)
+        split_df = pd.read_csv(DATA_DIR / f"cleaned_{name}.csv")
+        split_frames.append(split_df[["subject_id", "trial_number", "biased_reward",
+                                      "unbiased_reward", "is_biased_choice"]])
+    combined_df = pd.concat(split_frames, ignore_index=True)
+    combined_df["chose_biased"] = (combined_df["is_biased_choice"].astype(str).str.upper() == "TRUE").astype(int)
+    return combined_df.sort_values(["subject_id", "trial_number"]).reset_index(drop=True)
 
 
 def main() -> int:
@@ -89,8 +89,8 @@ def main() -> int:
         print(f"missing {TRIAL_CSV} -- run conditional_calibration.py first")
         return 1
 
-    tl = pd.read_csv(TRIAL_CSV)
-    print(f"loaded {len(tl):,} trials from the Phase 2 run\n")
+    trial_level_df = pd.read_csv(TRIAL_CSV)
+    print(f"loaded {len(trial_level_df):,} trials from the Phase 2 run\n")
 
     # ── 1. Analytic bounds ───────────────────────────────────────────────────
     print("=" * 78)
@@ -100,15 +100,15 @@ def main() -> int:
     print(f"   {'c_prev':<8}{'H':<4}{'b':<4}{'min P(alt1)':>13}{'max P(alt1)':>13}   crosses 0.5?")
     for cprev in (0, 1):
         for H, b in ((0, 0), (1, 0), (1, 1)):
-            vals = []
-            for pexp in (EPSILON / 3, EPSILON):
+            p_alt1_bounds = []
+            for p_explore in (EPSILON / 3, EPSILON):
                 for g in (0.0, 1.0):
-                    th = TAU * H
-                    vals.append(th * b + (1 - th) * (0.5 * pexp + (1 - pexp)
+                    tau_times_H = TAU * H
+                    p_alt1_bounds.append(tau_times_H * b + (1 - tau_times_H) * (0.5 * p_explore + (1 - p_explore)
                                 * (PHI * cprev + (1 - PHI) * g)))
-            lo, hi = min(vals), max(vals)
-            crosses = "YES" if lo < 0.5 < hi else "no"
-            print(f"   {cprev:<8}{H:<4}{b:<4}{lo:>13.4f}{hi:>13.4f}   {crosses}")
+            min_p_alt1, max_p_alt1 = min(p_alt1_bounds), max(p_alt1_bounds)
+            crosses_half = "YES" if min_p_alt1 < 0.5 < max_p_alt1 else "no"
+            print(f"   {cprev:<8}{H:<4}{b:<4}{min_p_alt1:>13.4f}{max_p_alt1:>13.4f}   {crosses_half}")
     print("\n   => on H=0 trials the two c_prev ranges are disjoint and 0.5 lies")
     print("      strictly between them: separation is STRUCTURAL, not empirical.")
     print("      Only the heuristic branch (H=1) can outvote inertia.")
@@ -117,82 +117,82 @@ def main() -> int:
     print("\n" + "=" * 78)
     print("2. EMPIRICAL CROSSING COUNTS (all trials, no bins, nothing dropped)")
     print("=" * 78)
-    c0 = tl[tl["c_prev"] == 0]
-    c1 = tl[tl["c_prev"] == 1]
-    x0 = c0[c0["p_alt1"] > 0.5]
-    x1 = c1[c1["p_alt1"] < 0.5]
-    print(f"   c_prev=0 total {len(c0):>8,}   of which p>0.5: {len(x0):>6,} "
-          f"({100*len(x0)/len(c0):.4f}%)")
-    print(f"   c_prev=1 total {len(c1):>8,}   of which p<0.5: {len(x1):>6,} "
-          f"({100*len(x1)/len(c1):.4f}%)")
-    print(f"   total crossings: {len(x0)+len(x1):,} of {len(tl):,} "
-          f"({100*(len(x0)+len(x1))/len(tl):.4f}%)")
+    c_prev_0_trials = trial_level_df[trial_level_df["c_prev"] == 0]
+    c_prev_1_trials = trial_level_df[trial_level_df["c_prev"] == 1]
+    c_prev_0_above_half = c_prev_0_trials[c_prev_0_trials["p_alt1"] > 0.5]
+    c_prev_1_below_half = c_prev_1_trials[c_prev_1_trials["p_alt1"] < 0.5]
+    print(f"   c_prev=0 total {len(c_prev_0_trials):>8,}   of which p>0.5: {len(c_prev_0_above_half):>6,} "
+          f"({100*len(c_prev_0_above_half)/len(c_prev_0_trials):.4f}%)")
+    print(f"   c_prev=1 total {len(c_prev_1_trials):>8,}   of which p<0.5: {len(c_prev_1_below_half):>6,} "
+          f"({100*len(c_prev_1_below_half)/len(c_prev_1_trials):.4f}%)")
+    print(f"   total crossings: {len(c_prev_0_above_half)+len(c_prev_1_below_half):,} of {len(trial_level_df):,} "
+          f"({100*(len(c_prev_0_above_half)+len(c_prev_1_below_half))/len(trial_level_df):.4f}%)")
 
     print(f"\n   observed ranges:")
-    print(f"     c_prev=0: p_alt1 in [{c0['p_alt1'].min():.4f}, {c0['p_alt1'].max():.4f}]")
-    print(f"     c_prev=1: p_alt1 in [{c1['p_alt1'].min():.4f}, {c1['p_alt1'].max():.4f}]")
+    print(f"     c_prev=0: p_alt1 in [{c_prev_0_trials['p_alt1'].min():.4f}, {c_prev_0_trials['p_alt1'].max():.4f}]")
+    print(f"     c_prev=1: p_alt1 in [{c_prev_1_trials['p_alt1'].min():.4f}, {c_prev_1_trials['p_alt1'].max():.4f}]")
 
     # ── 3. Do ALL crossings have H=1, as predicted? ──────────────────────────
     print("\n" + "=" * 78)
     print("3. TESTING THE PREDICTION: every crossing must have H=1")
     print("=" * 78)
-    choices = load_choices()
+    choice_df = load_choices()
     print("   recomputing H, b (k-independent; single k=0 pass) ...")
-    recs = []
-    for sid, d in choices.groupby("subject_id", sort=False):
-        st = state_tensors(d["biased_reward"].to_numpy(),
-                           d["unbiased_reward"].to_numpy(),
-                           d["chose_biased"].to_numpy().astype(bool),
-                           k=0, mode="fixed")
-        recs.append(pd.DataFrame({"subject_id": sid,
-                                  "trial_number": d["trial_number"].to_numpy(),
-                                  "H": st.H, "b": st.b}))
-    Hb = pd.concat(recs, ignore_index=True)
-    merged = tl.merge(Hb, on=["subject_id", "trial_number"], how="left")
-    assert merged["H"].notna().all(), "failed to recover H for some trials"
+    state_records = []
+    for subject_id, subject_df in choice_df.groupby("subject_id", sort=False):
+        state = state_tensors(subject_df["biased_reward"].to_numpy(),
+                              subject_df["unbiased_reward"].to_numpy(),
+                              subject_df["chose_biased"].to_numpy().astype(bool),
+                              k=0, mode="fixed")
+        state_records.append(pd.DataFrame({"subject_id": subject_id,
+                                           "trial_number": subject_df["trial_number"].to_numpy(),
+                                           "H": state.H, "b": state.b}))
+    state_H_b_df = pd.concat(state_records, ignore_index=True)
+    trial_level_with_Hb = trial_level_df.merge(state_H_b_df, on=["subject_id", "trial_number"], how="left")
+    assert trial_level_with_Hb["H"].notna().all(), "failed to recover H for some trials"
 
-    m0 = merged[(merged["c_prev"] == 0) & (merged["p_alt1"] > 0.5)]
-    m1 = merged[(merged["c_prev"] == 1) & (merged["p_alt1"] < 0.5)]
-    print(f"\n   c_prev=0 & p>0.5 : n={len(m0):,}  H=1 in {int(m0['H'].sum()):,} "
-          f"({100*m0['H'].mean() if len(m0) else float('nan'):.2f}%)  "
-          f"b=1 in {int(m0['b'].sum()):,}")
-    print(f"   c_prev=1 & p<0.5 : n={len(m1):,}  H=1 in {int(m1['H'].sum()):,} "
-          f"({100*m1['H'].mean() if len(m1) else float('nan'):.2f}%)  "
-          f"b=1 in {int(m1['b'].sum()):,}")
+    upward_crossings = trial_level_with_Hb[(trial_level_with_Hb["c_prev"] == 0) & (trial_level_with_Hb["p_alt1"] > 0.5)]
+    downward_crossings = trial_level_with_Hb[(trial_level_with_Hb["c_prev"] == 1) & (trial_level_with_Hb["p_alt1"] < 0.5)]
+    print(f"\n   c_prev=0 & p>0.5 : n={len(upward_crossings):,}  H=1 in {int(upward_crossings['H'].sum()):,} "
+          f"({100*upward_crossings['H'].mean() if len(upward_crossings) else float('nan'):.2f}%)  "
+          f"b=1 in {int(upward_crossings['b'].sum()):,}")
+    print(f"   c_prev=1 & p<0.5 : n={len(downward_crossings):,}  H=1 in {int(downward_crossings['H'].sum()):,} "
+          f"({100*downward_crossings['H'].mean() if len(downward_crossings) else float('nan'):.2f}%)  "
+          f"b=1 in {int(downward_crossings['b'].sum()):,}")
 
-    ok0 = (len(m0) == 0) or bool((m0["H"] == 1).all() and (m0["b"] == 1).all())
-    ok1 = (len(m1) == 0) or bool((m1["H"] == 1).all() and (m1["b"] == 0).all())
-    print(f"\n   [{'PASS' if ok0 else 'FAIL'}] every c_prev=0 upward crossing has H=1 AND b=1")
-    print(f"   [{'PASS' if ok1 else 'FAIL'}] every c_prev=1 downward crossing has H=1 AND b=0")
+    upward_crossings_valid = (len(upward_crossings) == 0) or bool((upward_crossings["H"] == 1).all() and (upward_crossings["b"] == 1).all())
+    downward_crossings_valid = (len(downward_crossings) == 0) or bool((downward_crossings["H"] == 1).all() and (downward_crossings["b"] == 0).all())
+    print(f"\n   [{'PASS' if upward_crossings_valid else 'FAIL'}] every c_prev=0 upward crossing has H=1 AND b=1")
+    print(f"   [{'PASS' if downward_crossings_valid else 'FAIL'}] every c_prev=1 downward crossing has H=1 AND b=0")
 
-    nH0 = merged[merged["H"] == 0]
-    v0 = nH0[(nH0["c_prev"] == 0) & (nH0["p_alt1"] > 0.5)]
-    v1 = nH0[(nH0["c_prev"] == 1) & (nH0["p_alt1"] < 0.5)]
-    print(f"\n   violations of the H=0 structural bound: {len(v0) + len(v1)} "
-          f"(must be 0; {len(nH0):,} H=0 trials checked)")
+    h_zero_trials = trial_level_with_Hb[trial_level_with_Hb["H"] == 0]
+    h_zero_upward_violations = h_zero_trials[(h_zero_trials["c_prev"] == 0) & (h_zero_trials["p_alt1"] > 0.5)]
+    h_zero_downward_violations = h_zero_trials[(h_zero_trials["c_prev"] == 1) & (h_zero_trials["p_alt1"] < 0.5)]
+    print(f"\n   violations of the H=0 structural bound: {len(h_zero_upward_violations) + len(h_zero_downward_violations)} "
+          f"(must be 0; {len(h_zero_trials):,} H=0 trials checked)")
     print(f"   H=0 observed max for c_prev=0: "
-          f"{nH0[nH0['c_prev']==0]['p_alt1'].max():.4f}  (bound 0.3530)")
+          f"{h_zero_trials[h_zero_trials['c_prev']==0]['p_alt1'].max():.4f}  (bound 0.3530)")
     print(f"   H=0 observed min for c_prev=1: "
-          f"{nH0[nH0['c_prev']==1]['p_alt1'].min():.4f}  (bound 0.6470)")
+          f"{h_zero_trials[h_zero_trials['c_prev']==1]['p_alt1'].min():.4f}  (bound 0.6470)")
 
     # ── 4. Was the figure's appearance a sparse-bin artifact? ────────────────
     print("\n" + "=" * 78)
     print("4. WAS fig1's APPEARANCE CAUSED BY DROPPING SPARSE BINS (min_count=30)?")
     print("=" * 78)
-    for label, sub in (("c_prev=0", c0), ("c_prev=1", c1)):
-        rel_all = M.reliability_table(sub["p_alt1"], sub["chose_biased"], n_bins=10, min_count=1)
-        rel_shown = M.reliability_table(sub["p_alt1"], sub["chose_biased"], n_bins=10, min_count=30)
-        dropped = rel_all[~rel_all["bin"].isin(rel_shown["bin"])]
-        wrong_side = rel_all[(rel_all["predicted"] > 0.5) if label == "c_prev=0"
-                             else (rel_all["predicted"] < 0.5)]
-        print(f"\n   {label}: {len(rel_all)} non-empty bins, {len(rel_shown)} shown at min_count=30")
-        if len(dropped):
+    for stratum_label, stratum_df in (("c_prev=0", c_prev_0_trials), ("c_prev=1", c_prev_1_trials)):
+        reliability_all_bins = metrics.reliability_table(stratum_df["p_alt1"], stratum_df["chose_biased"], n_bins=10, min_count=1)
+        reliability_shown_bins = metrics.reliability_table(stratum_df["p_alt1"], stratum_df["chose_biased"], n_bins=10, min_count=30)
+        dropped_bins = reliability_all_bins[~reliability_all_bins["bin"].isin(reliability_shown_bins["bin"])]
+        wrong_side_bins = reliability_all_bins[(reliability_all_bins["predicted"] > 0.5) if stratum_label == "c_prev=0"
+                             else (reliability_all_bins["predicted"] < 0.5)]
+        print(f"\n   {stratum_label}: {len(reliability_all_bins)} non-empty bins, {len(reliability_shown_bins)} shown at min_count=30")
+        if len(dropped_bins):
             print(f"     bins dropped as sparse: "
-                  f"{[(round(r.lo,2), round(r.hi,2), int(r.n)) for r in dropped.itertuples()]}")
+                  f"{[(round(r.lo,2), round(r.hi,2), int(r.n)) for r in dropped_bins.itertuples()]}")
         else:
             print("     bins dropped as sparse: none")
         print(f"     bins on the 'wrong' side of 0.5: "
-              f"{[(round(r.lo,2), round(r.hi,2), int(r.n)) for r in wrong_side.itertuples()] or 'none'}")
+              f"{[(round(r.lo,2), round(r.hi,2), int(r.n)) for r in wrong_side_bins.itertuples()] or 'none'}")
 
     # ── 5. Published model: the same test, as a falsifiable cross-check ──────
     print("\n" + "=" * 78)
@@ -201,25 +201,24 @@ def main() -> int:
     print("   Upward crossings (c_prev=0, p>0.5) require b=1. Under the published")
     print("   model b == 0 identically (the Phase 1 bug), so there must be exactly")
     print("   none. A non-zero count here would falsify the whole account above.\n")
-    up = dn = tot = 0
-    for sid, d in choices.groupby("subject_id", sort=False):
-        # NB: named `choices_1`, not `c1` -- `c1` is the c_prev==1 DataFrame in the
-        # enclosing scope (used above to build x1). Shadowing it worked only because
-        # x0/x1 are captured before this loop; one edit away from a silent bug.
-        choices_1 = d["chose_biased"].to_numpy().astype(bool)
-        p = catie_hetero(d["biased_reward"].to_numpy(), d["unbiased_reward"].to_numpy(),
-                         choices_1, mode="published")
-        cp = np.concatenate([[np.nan], choices_1[:-1].astype(float)])
-        m = ~np.isnan(cp)
-        m[0] = False
-        up += int(((cp == 0) & (p > 0.5) & m).sum())
-        dn += int(((cp == 1) & (p < 0.5) & m).sum())
-        tot += int(m.sum())
-    print(f"   published, {tot:,} trials:  upward {up:,}   downward {dn:,}")
-    print(f"   fixed,     {len(tl):,} trials:  upward {len(x0):,}   downward {len(x1):,}")
-    print(f"\n   [{'PASS' if up == 0 else 'FAIL'}] published upward crossings == 0")
+    upward_crossing_count = downward_crossing_count = total_trials = 0
+    for subject_id, subject_df in choice_df.groupby("subject_id", sort=False):
+        # Named `choices_1_bool` (not `c_prev_1_trials`) so it can't be confused with
+        # `c_prev_1_trials`, the c_prev==1 DataFrame from section 2.
+        choices_1_bool = subject_df["chose_biased"].to_numpy().astype(bool)
+        p_alt1_published = catie_hetero(subject_df["biased_reward"].to_numpy(), subject_df["unbiased_reward"].to_numpy(),
+                         choices_1_bool, mode="published")
+        c_prev_published = np.concatenate([[np.nan], choices_1_bool[:-1].astype(float)])
+        valid_trial_mask = ~np.isnan(c_prev_published)
+        valid_trial_mask[0] = False
+        upward_crossing_count += int(((c_prev_published == 0) & (p_alt1_published > 0.5) & valid_trial_mask).sum())
+        downward_crossing_count += int(((c_prev_published == 1) & (p_alt1_published < 0.5) & valid_trial_mask).sum())
+        total_trials += int(valid_trial_mask.sum())
+    print(f"   published, {total_trials:,} trials:  upward {upward_crossing_count:,}   downward {downward_crossing_count:,}")
+    print(f"   fixed,     {len(trial_level_df):,} trials:  upward {len(c_prev_0_above_half):,}   downward {len(c_prev_1_below_half):,}")
+    print(f"\n   [{'PASS' if upward_crossing_count == 0 else 'FAIL'}] published upward crossings == 0")
     print("   Note the published model has MORE downward crossings than the fixed one")
-    print("   ({} vs {}): whenever H=1 its dead heuristic branch diverts tau=0.29 to".format(dn, len(x1)))
+    print("   ({} vs {}): whenever H=1 its dead heuristic branch diverts tau=0.29 to".format(downward_crossing_count, len(c_prev_1_below_half)))
     print("   alternative 2 unconditionally, dragging P(alt1) down across the 0.5 line.")
 
     print("\n" + "=" * 78)

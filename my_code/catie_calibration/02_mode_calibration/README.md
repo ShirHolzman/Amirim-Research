@@ -23,6 +23,23 @@ at the end of the project.
 > one section was built on a circular quantity. Both are fixed below; §"What the
 > audit changed" records what the earlier version claimed.
 
+## Partitions considered
+
+Each row groups every trial into buckets by a different rule, then asks (§"Key
+findings" #2) how much of the calibration gap that grouping explains. `c_prev` is
+the mandatory baseline; every partition below is also tested crossed with it
+(`c_prev × X`).
+
+| partition | groups trials by |
+|---|---|
+| `c_prev` | whether the **previous** trial's choice was the biased option (0) or the unbiased one (1) — the baseline every richer partition must beat |
+| `hard_argmax` | which of CATIE's four internal regimes (heuristic / exploration / inertia / contingent-average) contributed the most probability mass to "choose alt 1" this trial |
+| `schedule` | which of the 9 reward schedules (sequences of payouts) the subject was run on |
+| `trial_phase` | which fifth of the 100-trial session the trial falls in (trials 1–20, 21–40, …, 81–99) — i.e. how far into the session the subject is |
+| `streak_bin` | how many trials in a row (ending the trial before this one) the subject made the *same* choice, bucketed into {1, 2, 3, 4–5, 6+} |
+| `reward_rate_bin` | the subject's average reward over their last 5 trials (excluding the current one), split into ~4 equal-sized groups |
+| `p_alt1_bin` | CATIE's own predicted probability of choosing alt 1 this trial, split into 20 equal-sized groups |
+
 ## Key findings
 
 ### 1. The central arithmetic
@@ -47,10 +64,10 @@ does not depend on the Phase 1 bug fix.
 | **`c_prev × streak_bin`** | **0.180** | **+0.076** |
 | `c_prev × p_alt1_bin` | 0.149 | +0.045 |
 | `p_alt1_bin` (20 quantiles) | 0.149 | +0.045 |
-| `c_prev × trial_quintile` | 0.124 | +0.020 |
+| `c_prev × trial_phase` | 0.124 | +0.020 |
 | `hard_argmax` | 0.121 | +0.016 |
 | `c_prev` (baseline) | 0.104 | — |
-| `streak_bin` / `trial_quintile` / `reward_rate_bin` / `schedule` alone | ≤0.005 | — |
+| `streak_bin` / `trial_phase` / `reward_rate_bin` / `schedule` alone | ≤0.005 | — |
 
 The substance (`fig3`, `gap_by_cprev_streak.csv`):
 
