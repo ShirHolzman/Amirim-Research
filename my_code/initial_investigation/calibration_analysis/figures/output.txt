@@ -2,7 +2,7 @@
 CATIE Probability Calibration Analysis
 ==============================================================
 
-Loading: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\processing\eda_with_catie_probabilities.csv
+Loading: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\initial_investigation\processing\eda_with_catie_probabilities.csv
 Loaded 49,200 rows
 
 -- Recovered catie_p_biased = P(choose biased option), independent of outcome
@@ -40,6 +40,6 @@ max          0.950000
   fig2_confidence_by_trial_schedule.png
   fig3_high_confidence_shrinkage.png
 
-All figures saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\calibration_analysis\figures
-Console output saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\EDA_set\calibration_analysis\figures\output.txt
+All figures saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\initial_investigation\calibration_analysis\figures
+Console output saved to: C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\initial_investigation\calibration_analysis\figures\output.txt
 Done.

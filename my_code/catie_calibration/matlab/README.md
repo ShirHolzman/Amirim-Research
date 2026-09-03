@@ -251,13 +251,15 @@ matrix by one trial — the prior column *is* the lag. This is now asserted in t
 script (0.000e+00), so the control list cannot silently double-count.
 
 *That lag is worth only 1.81e-03* — roughly 100× smaller than the other three
-mutations. Because the published code time-averages the weights over all 100
+mutations. Because the shipped code time-averages the weights over all 100
 trials (`mean(...,2)`), shifting by one only swaps the flat-prior column for the
 final column and divides the difference by 100. So the same quirk that discards
 the per-trial adaptivity `hetro.m`'s own comment describes also makes the code
-nearly insensitive to the off-by-one its `1:end-1` was guarding against. This is
-consistent with the separately measured result that the "intended" per-trial
-variant scores slightly *worse* (E[log p] −0.6992 → −0.7042).
+nearly insensitive to the off-by-one its `1:end-1` was guarding against.
+(Note, 2026-09: the per-trial variant scores slightly lower in E[log p]
+(−0.6992 → −0.7042 on EDA) yet it — not the time-average — is what the paper's
+reported numbers match; "scores worse" was never evidence about which one
+produced the paper. See section 4.)
 
 ### How to run
 
@@ -299,14 +301,17 @@ All 12 schedules, 3,332 subjects, 333,200 trials:
 
 | | E[log p] |
 |---|---|
-| Original unmodified MATLAB, published | **−0.6733** |
-| `catie_core.py` port, published | −0.6733 |
+| Original unmodified MATLAB, as shipped (time-averaged weights) | **−0.6733** |
+| `catie_core.py` port, `weighting="shipped_time_avg"` | −0.6733 |
+| `catie_core.py` port, `weighting="per_trial"` (the paper's) | −0.6776 |
 | Paper, Tables S1/S2 | −0.678 |
 
-The port and real MATLAB agree. The ~+0.0047 residual against the paper is real,
-now reproduced two independent ways, and remains unexplained — see
-`../REVIEW_PLAN.md`. It does not affect the published-vs-corrected comparison,
-which is paired on identical data either way.
+The port and real MATLAB agree exactly on the shipped code. The ~+0.0047 residual
+between the shipped code and the paper is now **explained** (2026-09): the shipped
+`hetro.m:25` time-averages the BMA weights, while the paper's numbers come from the
+per-trial weighting on its own commented-out line 26 — verified per schedule against
+Fig S5 to the rounding floor. It never affected the published-vs-corrected
+comparison, which is paired on identical data either way.
 
 ### How to run
 

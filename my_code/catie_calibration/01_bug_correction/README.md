@@ -24,31 +24,37 @@ Parameters held at published values (τ=0.29, ε=0.30, φ=0.71, k∈{0,1,2}). No
 
 | Pooled, 12 schedules, 3,332 subjects | Published | Corrected | Δ |
 |---|---|---|---|
-| E[p] | 0.6190 | 0.6293 | +0.0103 |
-| E[log p] | −0.6733 | −0.6611 | +0.0122 |
+| E[p] | 0.6192 | 0.6295 | +0.0103 |
+| E[log p] | −0.6776 | −0.6654 | +0.0122 |
 
-Subject-clustered paired tests: E[p] t(3331)=39.02, p=1.14e-274, dz=0.68;
-E[log p] t(3331)=27.64, p=1.46e-151, dz=0.48.
+Subject-clustered paired tests: E[p] t(3331)=39.16, p=3.2e-276, dz=0.68;
+E[log p] t(3331)=27.29, p=3.3e-148, dz=0.47.
+
+The published row now reproduces the paper's pooled values (E[p] 0.619,
+E[log p] −0.678) to the rounding floor — see the resolved-discrepancy note below.
 
 - E[log p] improves on **all 12 schedules** individually (+0.0027 to +0.0205).
 - 16.63% of trials are trend-testable; the corrected branch selects alternative 1 on
   7.44% of all trials.
-- Mean |ΔP(alt 1)| = 0.023, max 0.329; bimodal, with 7.44% of trials differing by >0.20.
-- The correction closes ~13% of the gap to the best Q-Learning model's E[log p].
+- Mean |ΔP(alt 1)| = 0.023, max 0.355; bimodal, with 7.44% of trials differing by >0.20.
+- The correction closes ~11% of the gap to the best Q-Learning model's E[log p].
 
 **Scope.** Affects only the trial-level model comparison (Tables S1/S2, Fig. S4). The
 competition result is unaffected — schedule optimisation and bias prediction use the
 *simulator*, which reads `pays(trial)` only after assignment.
 
-**Open discrepancy.** The port reproduces the paper's E[p] (0.6190 vs 0.619) but E[log p]
-differs by ~0.005 (−0.6733 vs −0.678), which is unexplained. This is *not* a cohort-size
-artifact: the pipeline migrated onto the competition's organized data release (see
-`../../completed_issues/SCHEDULE_N_RECONCILIATION.md`), and the cohort now matches the
-paper's 3,332 exactly on all 12 schedules -- yet the residual is essentially unchanged.
-That migration therefore *rules out* the subject-count-mismatch hypothesis rather than
-explaining the gap. It does not affect this chapter's conclusion, since the
-published-vs-corrected comparison is paired on identical data either way. Raised with
-supervisors in `VERIFICATION_MEMO.md`.
+**Resolved discrepancy (2026-09).** Earlier versions of this chapter showed a systematic
+~+0.005 E[log p] residual against the paper (−0.6733 vs −0.678, same sign on every
+schedule). Root cause: the *shipped* k-mixture code (`hetro.m:25`) time-averages the BMA
+weights (`mean(P' * W, 2)`), whereas the paper's reported numbers were produced by the
+per-trial weighting on its own commented-out line 26. Verified per schedule against the
+paper's Fig S5 tables: per-trial weights + the heuristic bug + trial 1 included
+reproduces every schedule to ≤0.0005 (the 3-decimal rounding floor), with mixed-sign
+residuals. All numbers in this chapter now use the per-trial weighting
+(`catie_core.mix_agents(weighting="per_trial")`, the project default); the shipped
+time-averaged variant is retained as `"shipped_time_avg"` only for golden tests against
+live MATLAB. The published-vs-corrected comparison is paired on identical data under
+either weighting, so this chapter's conclusion never depended on the choice.
 
 ## Validation
 

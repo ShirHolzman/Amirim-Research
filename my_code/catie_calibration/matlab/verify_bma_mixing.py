@@ -109,7 +109,9 @@ def mut_likelihood_in_alt1_space(P_alt1, P_choice):
 
 def mut_per_trial(P_alt1, P_choice):
     """Used the per-trial weighting hetro.m's own commented-out line 26 describes,
-    instead of the time-averaged one line 25 actually runs."""
+    instead of the time-averaged one line 25 actually runs. NOTE: per-trial is the
+    PROJECT DEFAULT (it is what the paper's numbers match); it is a 'mutation' here
+    only relative to the shipped MATLAB this script validates against."""
     W = _normalised_cumprod(P_choice)[:, :-1]
     return (P_alt1 * W).sum(axis=0)
 
@@ -162,7 +164,7 @@ def main() -> int:
         P_alt1 = np.where(c[None, :], P_choice, 1.0 - P_choice)
 
         # --- the actual thing under test -----------------------------------
-        mixed_alt1, W = mix_agents(P_alt1, c, weighting="published",
+        mixed_alt1, W = mix_agents(P_alt1, c, weighting="shipped_time_avg",
                                    return_weights=True)
         mixed_choice = p_of_observed_choice(mixed_alt1, c)
         dev_main.append(np.abs(mixed_choice - p_hetro).max())
@@ -198,7 +200,7 @@ def main() -> int:
     print("1. mix_agents() vs the ORIGINAL hetro.m, on identical inputs")
     print("=" * 78)
     ok = True
-    ok &= report("mix_agents(published) -> choice space  vs  MATLAB", dev_main)
+    ok &= report("mix_agents(shipped_time_avg) -> choice space  vs  MATLAB", dev_main)
     ok &= report("literal choice-space transcription     vs  MATLAB", dev_literal)
     ok &= report("alt-1-space route  vs  choice-space route", dev_space)
 

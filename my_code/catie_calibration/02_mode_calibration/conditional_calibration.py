@@ -38,11 +38,15 @@ identically. It is therefore reported ONLY as that proof; it is not used as a
 partition and no reliability curve is drawn from it, because every such number is
 reconstructible from a 2x4 count table and says nothing about the regimes.
 
-Model: the corrected ("fixed") CATIE likelihood, k in {0,1,2} published mixture.
+Model: the corrected ("fixed") CATIE likelihood, k in {0,1,2} mixed with the
+PER-TRIAL weighting -- the sequential Bayesian model average the paper's own
+reported numbers match (verified per schedule to the rounding floor, 2026-09).
+The shipped hetro.m:25 time-averages those weights; that variant is available as
+weighting="shipped_time_avg" and is used only for MATLAB golden tests.
 Section 2 re-runs the central c_prev split under the published model too, so the
 robustness claim is shown rather than asserted.
 
-Data: EDA + Training + schedule_0 (2,524 subjects; 249,876 trials after dropping
+Data: EDA + Training + schedule_0 (2,528 subjects; 250,272 trials after dropping
 trial 1). Test is excluded and asserted absent -- touched once, at the very end.
 
 Run:  python my_code/catie_calibration/02_mode_calibration/conditional_calibration.py
@@ -260,7 +264,8 @@ def noise_ceiling(df: pd.DataFrame, seed=RNG_SEED):
     """Upper bound on R^2 achievable by ANY history-only partition.
 
     Derivation. For a partition L, R^2(L) = 1 - E[Var(gap|L)]/Var(gap). By the law
-    of total variance, refining L never increases E[Var(gap|L)], so the finest
+    of total variance, 
+      L never increases E[Var(gap|L)], so the finest
     history partition X maximises R^2. Within a cell of X the forecast p is fixed
     (it is a deterministic function of history), so
 
@@ -333,7 +338,7 @@ def main():
     print("=" * 78)
     print("PHASE 2 -- CONDITIONAL CALIBRATION: WHICH PARTITION EXPLAINS THE GAP?")
     print("=" * 78)
-    print('model: corrected ("fixed") CATIE, k in {0,1,2}, published weighting')
+    print('model: corrected ("fixed") CATIE, k in {0,1,2}, per-trial k-mixture weighting (the paper\'s)')
     print("data: EDA + Training + schedule_0 (Test held out for final evaluation)\n")
 
     df = build_features(load_frame())
@@ -575,7 +580,7 @@ def main():
     reliability_aggregate = metrics.reliability_table(trial_level_df["p_alt1"], trial_level_df["chose_biased"], n_bins=10, min_count=30)
     axes[0].plot([0, 1], [0, 1], "--", color="0.5", lw=1)
     axes[0].scatter(reliability_aggregate["predicted"], reliability_aggregate["empirical"], s=reliability_aggregate["n"] / 30, color="#333")
-    axes[0].set_title(f"Aggregate (n={len(trial_level_df):,})")
+    axes[0].set_title(f"Predicted vs. actual choice rate, all trials pooled (n={len(trial_level_df):,})")
     axes[1].plot([0, 1], [0, 1], "--", color="0.5", lw=1)
     for c_prev_value, legend_label, color in [(0, "c_prev=0 (prior: unbiased)", PALETTE["c_prev=0"]),
                         (1, "c_prev=1 (prior: biased)", PALETTE["c_prev=1"])]:

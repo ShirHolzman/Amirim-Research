@@ -4,11 +4,16 @@ function p_decisions = COMPETITION_CATIE_schedule_choice_probability_hetro_FIXED
 %   COMPETITION_CATIE_schedule_choice_probability_hetro.m except that it
 %   calls COMPETITION_CATIE_schedule_choice_probability_FIXED instead of the
 %   original per-k function. See that file's header for the fix itself.
-%   The mixture/weighting logic (including the "published" time-averaged
-%   posterior, not the per-trial weighting the original comment on line 26
-%   describes) is left untouched, so the only difference between this
-%   function's output and the original hetro function's output is
-%   attributable to the heuristic-mode fix alone.
+%   The mixture/weighting logic (the SHIPPED time-averaged posterior, not the
+%   per-trial weighting the original comment on line 26 describes) is left
+%   untouched, so the only difference between this function's output and the
+%   original hetro function's output is attributable to the heuristic-mode fix
+%   alone. That is deliberate: this file exists to isolate the heuristic fix
+%   against the shipped code, so it must NOT also change the mixing.
+%   Note (2026-09): the per-trial weighting on line 26 -- not the time-average
+%   this file preserves -- is what the paper's reported numbers match. So this
+%   function reproduces the SHIPPED code with the heuristic fixed, which is a
+%   different thing from reproducing the paper. See ../README.md section 4.
 
 % Define the number of sub-agents and the number of decisions in the task.
 K = 0:2;

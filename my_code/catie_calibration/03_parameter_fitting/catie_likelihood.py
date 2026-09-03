@@ -11,8 +11,14 @@ is NOT simply a convex combination with fixed weights: the mixture weights are
 built from the cumulative product of the per-agent choice probabilities, which
 themselves depend on the parameters. So the weights move when the parameters move
 and must be recomputed inside every likelihood evaluation. They are -- see
-`mix_published`. Treating them as fixed would give a subtly wrong gradient and a
-subtly wrong optimum.
+`mix_per_trial` / `mix_shipped_time_avg`. Treating them as fixed would give a subtly
+wrong gradient and a subtly wrong optimum.
+
+WHICH MIXING. `weighting="per_trial"` (default) is the sequential Bayesian model
+average the paper's numbers were produced with (verified against Fig S5 per schedule
+to the rounding floor). `"shipped_time_avg"` reproduces hetro.m:25 as shipped, which
+time-averages the weights; it exists only so the shipped code can be reproduced and
+must not be quoted as the published model. Same convention as catie_core.mix_agents.
 
 Parameterisation for the optimiser: tau, eps, phi are all probabilities in (0,1),
 so they are optimised in logit space. This removes the need for bounded solvers,
@@ -94,38 +100,56 @@ def p_alt1_single_k(state, tau=TAU, eps=EPSILON, phi=PHI, phi_long=None,
     return p1
 
 
-def mix_published(P, y):
-    """Heterogeneous k-mixture, reproducing COMPETITION_..._hetro.m:25 exactly.
+WEIGHTINGS = ("per_trial", "shipped_time_avg")
 
-    P : (n_agents, n_subjects, n_trials) of P(alt 1).
 
-    MATLAB computes mean(agents' * normalised_likelihoods, 2), which collapses to
-        p(t) = sum_k P_k(t) * mean_s W_k(s)
-    i.e. TIME-AVERAGED posterior weights applied uniformly to every trial, rather
-    than the per-trial sequential weighting the file's own comment describes. That
-    is the behaviour that produced the published numbers, so it is what is
-    reproduced here. The weights depend on the parameters (through P) and are
-    therefore recomputed on every call, not cached.
-    """
+def _posterior_weights(P, y):
+    """Lagged, normalised BMA weights W (n_agents, n_subjects, n_trials), columns sum
+    to 1; W[..., t] uses the choices made on trials < t (hetro.m:20-22).
+    P : (n_agents, n_subjects, n_trials) of P(alt 1)."""
     yb = y.astype(bool)[None, :, :]
     P_choice = np.where(yb, P, 1.0 - P)                      # (a, s, t)
     n_a, n_s, n_t = P_choice.shape
     ones = np.ones((n_a, n_s, 1))
     L = np.cumprod(np.concatenate([ones, P_choice], axis=2), axis=2)   # (a, s, t+1)
     W = L / L.sum(axis=0, keepdims=True)
-    W = W[:, :, :-1]
-    w_bar = W.mean(axis=2)                                   # (a, s)
+    return W[:, :, :-1]
+
+
+def mix_per_trial(P, y):
+    """Sequential Bayesian model average, p(t) = sum_k P_k(t) W_k(t) -- hetro.m's
+    commented line 26, and what the paper's reported numbers match. Weights depend on
+    the parameters through P, so they are recomputed on every call, not cached."""
+    return (P * _posterior_weights(P, y)).sum(axis=0)
+
+
+def mix_shipped_time_avg(P, y):
+    """hetro.m:25 as shipped: mean(agents' * normalised_likelihoods, 2), i.e.
+        p(t) = sum_k P_k(t) * mean_s W_k(s)
+    -- time-averaged weights applied uniformly to every trial. Reproduces the shipped
+    code, NOT the paper's numbers (see module docstring). Kept for reproduction only."""
+    w_bar = _posterior_weights(P, y).mean(axis=2)            # (a, s)
     return np.einsum("ast,as->st", P, w_bar)
+
+
+def mix_agents_3d(P, y, weighting="per_trial"):
+    if weighting == "per_trial":
+        return mix_per_trial(P, y)
+    if weighting == "shipped_time_avg":
+        return mix_shipped_time_avg(P, y)
+    raise ValueError(f"unknown weighting {weighting!r}; use one of {WEIGHTINGS}")
 
 
 def p_choice_matrix(cache: StateCache, tau=TAU, eps=EPSILON, phi=PHI,
                     ks=None, phi_long=None, streak_thresh=None, streak=None,
-                    lapse=0.0, published_b=False):
+                    lapse=0.0, published_b=False, weighting="per_trial"):
     """P(the choice actually made), (n_subjects, n_trials).
 
     ks=None uses the cache's k set as a heterogeneous mixture; a single int uses
     that k alone (the paper's Methods state K = 2, while the shipped likelihood code
     mixes K in {0,1,2} -- both are supported so the discrepancy can be measured).
+    weighting : "per_trial" (default, the paper's) or "shipped_time_avg" (the code
+                as shipped) -- see module docstring.
     """
     if ks is None:
         ks = cache.ks
@@ -142,7 +166,7 @@ def p_choice_matrix(cache: StateCache, tau=TAU, eps=EPSILON, phi=PHI,
     if single:
         p1 = Ps[0]
     else:
-        p1 = mix_published(np.stack(Ps, axis=0), cache.y)
+        p1 = mix_agents_3d(np.stack(Ps, axis=0), cache.y, weighting)
 
     if lapse:
         p1 = lapse / 2.0 + (1.0 - lapse) * p1

@@ -94,12 +94,19 @@ parameters), `mode_contributions()`, `mode_weights()`, `mix_agents()`, `catie_he
     the `meshgrid` marginalisation reproduces this. Do not count-weight it.
   - Sample SD uses (n−1) with an `isnan` guard; surprise uses SD updated *through* trial
     t but `expected_reward` computed at the *start* of t.
-- [x] **`mix_agents(weighting="published")`** reproduces `..._hetro.m:25`, which computes
-  `mean(agents' * W, 2)` — collapsing to **time-averaged** posterior weights applied
-  uniformly to every trial. **The MATLAB file's own comment describes per-trial weighting,
-  which is not what the code does.** Verify against the MATLAB, not the comment.
-  *(The "intended" per-trial variant was measured as slightly worse: E[log p] −0.6992 →
-  −0.7042. Footnote, not a finding.)*
+- [x] **`mix_agents(weighting="shipped_time_avg")`** reproduces `..._hetro.m:25`, which
+  computes `mean(agents' * W, 2)` — collapsing to **time-averaged** posterior weights
+  applied uniformly to every trial. **The MATLAB file's own comment describes per-trial
+  weighting, which is not what the code does.** Verify against the MATLAB, not the comment.
+  ⚠ **The parenthetical that used to sit here was wrong, and instructively so.** It read:
+  *"the 'intended' per-trial variant was measured as slightly worse: E[log p] −0.6992 →
+  −0.7042. Footnote, not a finding."* Scoring lower on our data is not evidence about
+  which variant produced the **paper's** numbers — those are two different questions, and
+  the reasoning silently substituted one for the other. Checked properly in 2026-09
+  (against the paper's per-schedule Fig S5 values rather than against our own preference),
+  **per-trial is the paper's weighting**: it reproduces every schedule to ≤5e-4 while the
+  time-average leaves a same-signed +0.005 residual. It was the finding, not the footnote.
+  The project default is now `per_trial`; see `validate_against_paper.py` section 2.
 - [x] Trial 1 is fixed at p = 0.5 by the reference implementation. Check every metric
   either drops it or includes it **consistently**.
 
@@ -395,11 +402,13 @@ But isotonic recalibration — zero psychological content — captures **98%** o
 
 **Check.**
 
-- [ ] **The mixture-weight subtlety.** `mix_published` weights are built from the
-  cumulative product of per-agent choice probabilities, which depend on the parameters —
-  so they must be recomputed **inside every likelihood evaluation**. Verify no
-  memoisation on the path `negloglik_factory.f → mean_log_p → p_choice_matrix →
-  mix_published`. Frozen weights would give a subtly wrong optimum.
+- [ ] **The mixture-weight subtlety.** The BMA weights are built from the cumulative
+  product of per-agent choice probabilities, which depend on the parameters — so they
+  must be recomputed **inside every likelihood evaluation**. Verify no memoisation on
+  the path `negloglik_factory.f → mean_log_p → p_choice_matrix → mix_agents_3d →
+  mix_per_trial → _posterior_weights`. Frozen weights would give a subtly wrong optimum.
+  *(Renamed 2026-09: the single `mix_published` became `mix_per_trial` /
+  `mix_shipped_time_avg` behind the `mix_agents_3d` dispatcher.)*
 - [ ] **X5 — the control is where leakage would hide.** Verify temperature, Platt and
   isotonic are each `.fit()` on **Training** and only `.predict()` on EDA. Isotonic is
   non-parametric and overfits spectacularly in-sample. Trace the actual data objects.
@@ -468,7 +477,7 @@ But isotonic recalibration — zero psychological content — captures **98%** o
   (Its *substance* was independently reproduced in an audit, so this is a reproducibility
   defect rather than a false claim — but in a thesis that distinction will not protect you.)
 
-### `validate_against_paper.py` (362 lines) — added 2026-08-21
+### `validate_against_paper.py` (432 lines) — added 2026-08-21, hardened 2026-09
 
 **Does.** Validates the port against the paper's **per-schedule** reported values
 (`Data_resources/extracted_data/{E_p.md, E_log_p.md}`, from Fig S5).
@@ -478,6 +487,12 @@ Run: `... validate_against_paper.py [training|eda|schedule_0]`.
 mapping (paper labels 1–12, repo labels 0–11) by matching reported *n*; scores the
 published port, the corrected port and the re-fitted parameters per schedule.
 
+Section 2 **determines the paper's two undocumented conventions empirically** rather
+than assuming them: it scores all four {`per_trial`, `shipped_time_avg`} × {trial 1
+kept, dropped} combinations against the reported per-schedule values, picks the winner
+by worst-case error, and asserts it before sections 3–4 use it. This is the check that
+localised the ~0.005 E[log p] residual to the shipped k-weighting.
+
 The design decision that matters: the paper's numbers came from the original MATLAB,
 **which contains the bug**, so the variant that should reproduce them is the *published*
 port. Comparing the paper to the corrected model would manufacture a discrepancy that is
@@ -485,21 +500,28 @@ really the bug.
 
 **Check.**
 
-- [ ] **[VERIFIED] E[p] reproduces**: max |Δ| = 0.0012 (training), 0.0018 (EDA) — at the
-  paper's 3-decimal rounding.
-- [ ] **[OPEN] E[log p] does not, and the failure is systematic.** Residuals are
-  +0.0056, +0.0029, +0.0065, +0.0064, +0.0040 on training — **same sign on every
-  schedule**, mean +0.0051; same pattern on EDA (mean +0.0040). Not rounding noise. This
-  is the previously-unresolved ~0.005 gap in the supervisor memo, now localised: the port
-  places the same average mass but distributes it slightly differently across trials.
-  **This is the single most concrete open defect in the project.**
-- [ ] Sample sizes: 5/5 exact on training. On EDA, `schedule_7` is **115 vs 119
-  reported** — the known 4-subject gap. Max impact was bounded at 0.0028 against a 0.005
-  discrepancy, so it does not explain the E[log p] gap on its own.
-- [ ] `MATCH_TOL = 0.002` — is that the right tolerance to call a match?
-- [ ] Section 2 tests whether trial 1 belongs in the paper's average; the result is
-  inconclusive (keep-trial-1 fits E[p] marginally better, drop fits E[log p] marginally
-  better). Both conventions are within noise — check the reasoning.
+- [x] **[RESOLVED 2026-09] Both metrics now reproduce, on all three splits.** Under the
+  paper's own conventions (per-trial k-weighting, trial 1 kept — both determined
+  empirically in the script's section 2, not assumed): max |ΔE[p]| = 0.0005 / 0.0003 /
+  0.0002 and max |ΔE[log p]| = 0.0004 / 0.0003 / 0.0004 on training / EDA / schedule_0.
+  All at the 3-decimal rounding floor, with **mixed-sign** residuals (3+/2− and 2+/1−).
+- [x] **[RESOLVED] The systematic same-signed E[log p] residual** (+0.0056, +0.0029,
+  +0.0065, +0.0064, +0.0040 on training; mean +0.0051) was the shipped `hetro.m:25`
+  time-averaged k-weighting, not a porting error. It disappears under the per-trial rule.
+  The script now warns loudly if a same-signed pattern ever returns — but only when there
+  are ≥3 schedules, since with fewer a uniform sign is not evidence.
+- [x] **[RESOLVED] Sample sizes: exact on every split** — 5/5 training, 3/3 EDA, 1/1
+  schedule_0. The `schedule_7` 4-subject gap (115 vs 119) is gone; the organized-data-
+  release migration fixed it, and the script asserts the counts on every run.
+- [x] **[RESOLVED] `MATCH_TOL`** tightened 0.002 → **0.0006**. The old value was 4× the
+  0.0005 rounding floor, which is precisely why it certified E[p] as a "match" while a
+  real systematic error sat underneath. All three splits pass at the tight tolerance.
+- [x] **[RESOLVED] Section 2 no longer ignores its own result.** It now scores all four
+  {per_trial, shipped_time_avg} × {keep, drop trial 1} combinations, picks the winner by
+  worst-case error, asserts it, and feeds it to sections 3–4. The earlier
+  "inconclusive" reading was an artifact of testing trial 1 alone while holding the
+  weighting fixed at the wrong value — with the weighting free, the answer is
+  unambiguous (worst error 0.0005 vs 0.0073).
 
 ---
 
@@ -507,9 +529,18 @@ really the bug.
 
 Things already known to be wrong or unresolved. Confirm rather than rediscover.
 
-1. **[OPEN] The systematic E[log p] residual (~+0.005, same sign on every schedule).**
-   The port matches the paper on E[p] but not E[log p]. Highest-value thing to chase.
-2. **[OPEN] The 4-subject gap** in `schedule_7` (115 local vs 119 reported).
+1. **[RESOLVED 2026-09] The systematic E[log p] residual (~+0.005).** Root cause: the
+   shipped `hetro.m:25` time-averages the k-mixture (BMA) weights; the paper's numbers
+   were produced by the per-trial weighting on its commented-out line 26. Verified per
+   schedule against Fig S5: per-trial + heuristic bug + trial 1 kept reproduces all 9
+   non-Test schedules to ≤0.0005 (rounding floor, mixed-sign residuals). The project
+   default is now `weighting="per_trial"`; `"shipped_time_avg"` is kept only for golden
+   tests against live MATLAB. Phases 1–3 rerun accordingly (pooled published now
+   0.6192/−0.6776 vs paper 0.619/−0.678).
+2. **[RESOLVED 2026-09] The 4-subject gap** in `schedule_7` (115 local vs 119 reported)
+   is closed: the split now holds 119, matching the paper exactly, as do all other
+   schedules on all three cached splits. `validate_against_paper.py` section 1 asserts
+   this on every run, so a regression cannot pass silently.
 3. **⚠ The 0.6158 mislabelling — a live example of why documentation is untrustworthy.**
    `scratchpad/pareto.py` labels a row `"M0 published"` where `PUB` means published
    **parameters** applied to the **corrected** model. That row (EDA E[p] = 0.6158) was
@@ -522,6 +553,10 @@ Things already known to be wrong or unresolved. Confirm rather than rediscover.
    | our published port | 0.6023 | −0.7143 |
    | our corrected port | 0.6158 | −0.6992 |
    | re-fitted (held out) | 0.6027 | −0.5911 |
+
+   *(Historical table — computed under the shipped time-averaged weighting. Under the
+   per-trial default adopted 2026-09: published port 0.6020/−0.7194, corrected
+   0.6153/−0.7046; see the Phase 1/3 READMEs for current numbers.)*
 
    Consequence: "the re-fit loses E[p]" is true against the **corrected** baseline; against
    the paper's own reported 0.6010 it is roughly flat. **Decide which baseline the thesis

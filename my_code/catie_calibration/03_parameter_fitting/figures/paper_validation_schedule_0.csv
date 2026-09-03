@@ -1,0 +1,2 @@
+schedule,paper_schedule,n,E_p_reported,E_p_published,E_p_corrected,E_p_refitted,E_logp_reported,E_logp_published,E_logp_corrected,E_logp_refitted,dE_p,dE_logp
+schedule_0,1,549,0.676,0.6761693465834598,0.6784062848173871,0.6487075763744502,-0.586,-0.5855821603281687,-0.5828893305074542,-0.5094804480035113,0.00016934658345979514,0.00041783967183128823

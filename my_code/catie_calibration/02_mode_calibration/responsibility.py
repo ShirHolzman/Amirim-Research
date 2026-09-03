@@ -52,19 +52,22 @@ uses internally to mix P(alt 1) (obtained via mix_agents(..., return_weights=Tru
 not recomputed here), so responsibility and probability mixing cannot silently
 diverge from each other.
 
-CAVEAT ON "PROSPECTIVE" -- read before calling anything here history-only.
-Under weighting="published" the k-mixture weight is w_bar = W.mean(axis=1), the
-TIME-AVERAGE over all 100 trials of the sequential k-posterior. It therefore
-depends on y(t) and on every choice AFTER t. This is inherited faithfully from the
-published MATLAB (hetro.m:25), not introduced here, and it means p_alt1 -- and
-anything derived from it, including the hard-argmax mode attribution -- is not
-strictly a function of history alone. It is a weak dependence, and quantified:
-recomputing everything with causal per-trial weights instead changes the
-hard_argmax label on 1.04% of trials, moves mean |delta p_alt1| by 0.0099
-(max 0.206), shifts the headline c_prev gaps from +0.2046/-0.1136/+0.0030 to
-+0.2080/-0.1133/+0.0044, and moves R^2(c_prev) from 0.1041 to 0.1056. Conclusions
-are robust to it; the word "prospective" is nonetheless an approximation and is
-used in that sense throughout Phase 2.
+MIXING WEIGHTS. The default weighting="per_trial" uses the causal sequential
+k-posterior W[:, t] (choices before t only), so p_alt1 and everything derived from
+it is a genuine function of history -- "prospective" in the strict sense. This is
+also the weighting the paper's reported numbers match. The alternative
+weighting="shipped_time_avg" reproduces hetro.m:25 as shipped, where the weight is
+w_bar = W.mean(axis=1), the time-average over all trials, which depends on y(t)
+and on every later choice; it is kept only for reproducing the shipped code.
+Historical note: Phase 2 was first run under the time-averaged weights. Comparing
+the two full pipeline runs, switching to per-trial shifted the headline c_prev gaps
+from +0.205/-0.114/+0.003 to +0.208/-0.113/+0.004 and R^2(c_prev) from 0.104 to
+0.106; the strongest partition (c_prev x streak_bin) moved 0.180 -> 0.178 against a
+noise ceiling of 0.268 -> 0.265. A trial-level probe measured mean |delta p_alt1| at
+0.0099 (max 0.206) with the hard_argmax label changing on 1.04% of trials. Every
+conclusion is unchanged; only third decimals moved. (The two runs also differ by 4
+subjects, 2,524 -> 2,528, from the organized-data-release migration, so these
+deltas are not attributable to the weighting alone.)
 """
 
 from __future__ import annotations
@@ -85,7 +88,7 @@ REGIME_NAMES = ("heuristic", "exploration", "inertia", "contingent_avg")
 
 
 def responsibility_posterior(rewards_1, rewards_2, is_choice_1, mode="fixed",
-                             ks=(0, 1, 2), weighting="published",
+                             ks=(0, 1, 2), weighting="per_trial",
                              tau=TAU, epsilon=EPSILON, phi=PHI, n_trials=100):
     """Posterior P(regime | observed choice) for one subject, marginalised over
     the k-mixture.
@@ -129,17 +132,17 @@ def responsibility_posterior(rewards_1, rewards_2, is_choice_1, mode="fixed",
     p_alt1_mix, mixing_weights = mix_agents(p_alt1_by_agent, is_choice_1, weighting=weighting, return_weights=True)
     p_choice_mix = p_of_observed_choice(p_alt1_mix, is_choice_1)
 
-    if weighting == "published":
+    if weighting == "per_trial":
+        mixed_responsibility = np.einsum("rat,at->rt", responsibility_by_regime_and_agent, mixing_weights)
+        mixed_contribution = np.einsum("rat,at->rt", contribution_by_regime_and_agent, mixing_weights)
+    elif weighting == "shipped_time_avg":
         time_averaged_agent_weights = mixing_weights.mean(axis=1)  # (n_agents,), sums to 1
         mixed_responsibility = np.tensordot(
             responsibility_by_regime_and_agent, time_averaged_agent_weights, axes=([1], [0]))  # (4, n_trials)
         mixed_contribution = np.tensordot(
             contribution_by_regime_and_agent, time_averaged_agent_weights, axes=([1], [0]))  # (4, n_trials)
-    elif weighting == "per_trial":
-        mixed_responsibility = np.einsum("rat,at->rt", responsibility_by_regime_and_agent, mixing_weights)
-        mixed_contribution = np.einsum("rat,at->rt", contribution_by_regime_and_agent, mixing_weights)
     else:
-        raise ValueError(f"unknown weighting {weighting!r}")
+        raise ValueError(f"unknown weighting {weighting!r}; use 'per_trial' or 'shipped_time_avg'")
 
     with np.errstate(invalid="ignore", divide="ignore"):
         responsibility = mixed_responsibility / p_choice_mix[None, :]

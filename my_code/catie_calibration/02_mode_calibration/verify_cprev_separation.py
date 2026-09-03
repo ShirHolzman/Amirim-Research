@@ -28,16 +28,19 @@ Answer, established analytically and then verified against the data below:
         extreme as well (g > ~0.72 or g < ~0.28 respectively).
 
   So every crossing trial in the data must have H=1. That is a falsifiable
-  prediction, checked exhaustively below rather than asserted. Result: it holds
-  at 100% -- all 1,273 upward crossings have H=1 and b=1, all 254 downward have
-  H=1 and b=0, and there are 0 violations among the 208,429 H=0 trials.
+  prediction, checked exhaustively below rather than asserted. Result (per-trial
+  k-weighting, the project default since 2026-09): it holds at 100% -- all 1,354
+  upward crossings have H=1 and b=1, all 425 downward have H=1 and b=0, and
+  there are 0 violations among the 208,757 H=0 trials.
 
   Answering the two hypotheses directly: the separation is NOT an absolute rule
-  (1,527 crossings, 0.61% of trials), and it is NOT an artifact of dropping
-  sparse bins either -- the crossing bins hold 1,273 and 254 trials, far above
+  (1,779 crossings, 0.71% of trials), and it is NOT an artifact of dropping
+  sparse bins either -- the crossing bins hold 1,354 and 425 trials, far above
   the min_count=30 threshold, and ARE drawn in fig1 as the slight overhang past
   0.5 at the inner end of each curve. fig1 simply looks cleanly split because
-  crossings are rare and confined to a narrow band (max 0.525 / min 0.476).
+  crossings are rare and confined to a narrow band (max 0.526 / min 0.474).
+  (The CONCLUSION section prints these numbers from the live computation, so a
+  future rerun cannot silently drift from this docstring without being visible.)
 
 Note H, b and c_prev are k-INDEPENDENT (they are functions of the observed choices
 and payoffs only -- see catie_core.state_tensors), so a single cheap k=0 pass
@@ -224,32 +227,38 @@ def main() -> int:
     print("\n" + "=" * 78)
     print("CONCLUSION")
     print("=" * 78)
+    n_up, n_down = len(c_prev_0_above_half), len(c_prev_1_below_half)
+    n_cross = n_up + n_down
+    n_total = len(trial_level_with_Hb)
+    n_h0 = len(h_zero_trials)
+    p_max_c0 = c_prev_0_trials["p_alt1"].max()
+    p_min_c1 = c_prev_1_trials["p_alt1"].min()
     print("   The separation is NOT absolute, and NOT a sparse-bin artifact either.")
     print("   Both proposed explanations are wrong; the real one is structural:")
     print()
-    print("   (a) On the 83.4% of trials where the trend branch is not testable")
+    print(f"   (a) On the {100*n_h0/n_total:.1f}% of trials where the trend branch is not testable")
     print("       (H=0), separation is a THEOREM, not a tendency. phi=0.71 on the")
     print("       previous choice, against an exploration term capped at eps=0.30,")
     print("       forces P(alt1) <= 0.353 when c_prev=0 and >= 0.647 when c_prev=1.")
-    print("       0 violations in 208,429 such trials, exactly as predicted.")
+    print(f"       0 violations in {n_h0:,} such trials, exactly as predicted.")
     print()
-    print("   (b) Crossings do occur -- 1,527 of them (0.61%) -- and every single")
-    print("       one is an H=1 trial where the heuristic points opposite to the")
-    print("       previous choice. That is the only mechanism in CATIE able to")
+    print(f"   (b) Crossings do occur -- {n_cross:,} of them ({100*n_cross/n_total:.2f}%) -- and every")
+    print("       single one is an H=1 trial where the heuristic points opposite to")
+    print("       the previous choice. That is the only mechanism in CATIE able to")
     print("       outvote inertia.")
     print()
     print("   (c) Those crossings are NOT hidden by the min_count=30 filter: their")
-    print("       bins hold 1,273 and 254 trials and ARE plotted in fig1. They are")
+    print(f"       bins hold {n_up:,} and {n_down:,} trials and ARE plotted in fig1. They are")
     print("       the slight overhang past 0.5 at the inner end of each curve.")
     print("       fig1 looks cleanly split because crossings are rare and confined")
-    print("       to a narrow band (max 0.525 / min 0.476), not because anything")
+    print(f"       to a narrow band (max {p_max_c0:.3f} / min {p_min_c1:.3f}), not because anything")
     print("       was dropped.")
     print()
-    print("   Asymmetry worth noting: upward crossings (c_prev=0, n=1,273) outnumber")
-    print("   downward ones (c_prev=1, n=254) 5:1. Upward crossings require b=1, which")
-    print("   is identically impossible under the PUBLISHED model (b == 0 everywhere --")
-    print("   that is the Phase 1 bug), so this asymmetry exists only in the corrected")
-    print("   model and is itself a downstream consequence of the fix.")
+    print(f"   Asymmetry worth noting: upward crossings (c_prev=0, n={n_up:,}) outnumber")
+    print(f"   downward ones (c_prev=1, n={n_down:,}) {n_up/n_down:.1f}:1. Upward crossings require b=1,")
+    print("   which is identically impossible under the PUBLISHED model (b == 0")
+    print("   everywhere -- that is the Phase 1 bug), so this asymmetry exists only in")
+    print("   the corrected model and is itself a downstream consequence of the fix.")
     return 0
 
 

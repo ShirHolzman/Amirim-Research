@@ -21,16 +21,30 @@ loaded cache 'eda': 496 subjects x 100 trials
    => paper-k -> schedule_(k-1) mapping confirmed by n on all 3 schedules.
 
 ==============================================================================
-2. IS TRIAL 1 INCLUDED IN THE PAPER'S AVERAGE?
+2. WHICH CONVENTIONS REPRODUCE THE PAPER? (k-weighting x trial 1)
 ==============================================================================
-   Trial 1 is fixed at p=0.5 by the reference implementation, so including
-   it shifts both metrics. We do not know the paper's choice a priori --
-   we determine it empirically, by which one reproduces the reported values.
+   Two choices affect the reported averages and NEITHER is documented:
+     k-weighting : 'per_trial'        -- hetro.m's own commented line 26
+                   'shipped_time_avg' -- what hetro.m:25 actually runs
+     trial 1     : kept or dropped -- it is fixed at p=0.5 by the model,
+                   so including it drags both metrics toward the middle
+   Both are determined EMPIRICALLY, by which combination reproduces the
+   paper's own per-schedule values. A correct reproduction should land at
+   the 3-decimal rounding floor (5e-4) with MIXED-SIGN residuals; a
+   same-signed residual on every schedule is a systematic error.
 
-   drop trial 1   mean|dE[p]| = 0.0013   mean|dE[log p]| = 0.0046
-   keep trial 1   mean|dE[p]| = 0.0006   mean|dE[log p]| = 0.0049
+   k-weighting       trial 1     max|dE[p]|  max|dE[logp]|   logp signs
+   per_trial         kept            0.0003         0.0003        2+/1-
+   per_trial         dropped         0.0014         0.0009        1+/2-
+   shipped_time_avg  kept            0.0009         0.0061        3+/0-
+   shipped_time_avg  dropped         0.0018         0.0055        3+/0-
 
-   Using drop_first=True below (the convention used throughout Phases 1-3).
+   => best: weighting='per_trial', trial 1 KEPT (worst error 0.0003)
+   Sections 3-4 use those conventions.
+   NOTE Phases 1-3 report their own headline numbers with trial 1 DROPPED
+   (it carries no model information). That is a reporting choice and is
+   unrelated to reproducing the paper's absolute values, which is what
+   this script does.
 
 ==============================================================================
 3. REPORTED vs OUR PORT vs RE-FITTED (per eda schedule)
@@ -38,34 +52,33 @@ loaded cache 'eda': 496 subjects x 100 trials
    published port = bug-for-bug MATLAB  -> this is what should match the paper
    corrected port = Phase 1 bug fix     -> a DIFFERENT model; must not match
    re-fitted      = Phase 3 params, IN-SAMPLE here (fitted on pooled training)
+   conventions    = weighting='per_trial', trial 1 kept (from section 2)
 
    sched             n  E[p] rep      pub     diff     corr    refit
-   schedule_4      201     0.587   0.5888  +0.0018   0.5973   0.5851
-   schedule_5      176     0.638   0.6390  +0.0010   0.6596   0.6406
-   schedule_7      119     0.569   0.5701  +0.0011   0.5809   0.5742
+   schedule_4      201     0.587   0.5873  +0.0003   0.5956   0.5779
+   schedule_5      176     0.638   0.6380  +0.0000   0.6585   0.6314
+   schedule_7      119     0.569   0.5693  +0.0003   0.5800   0.5674
 
    sched             n  E[lgp] rep      pub     diff     corr    refit
-   schedule_4      201      -0.755  -0.7495  +0.0055  -0.7346  -0.6200
-   schedule_5      176      -0.636  -0.6321  +0.0039  -0.6129  -0.5282
-   schedule_7      119      -0.781  -0.7765  +0.0045  -0.7686  -0.6379
+   schedule_4      201      -0.755  -0.7553  -0.0003  -0.7405  -0.6269
+   schedule_5      176      -0.636  -0.6360  +0.0000  -0.6170  -0.5354
+   schedule_7      119      -0.781  -0.7809  +0.0001  -0.7732  -0.6437
 
 ==============================================================================
 4. VERDICT
 ==============================================================================
-   published port vs paper: max |dE[p]| = 0.0018, max |dE[log p]| = 0.0055  (tolerance 0.002)
+   published port vs paper: max |dE[p]| = 0.0003, max |dE[log p]| = 0.0003  (tolerance 0.0006)
    E[p]     reproduced on all 3 schedules : YES
-   E[log p] reproduced on all 3 schedules : NO
-   NOTE: every E[log p] residual has the SAME sign (mean +0.0046).
-   A same-signed residual on every schedule is a SYSTEMATIC difference, not
-   rounding noise. E[p] matching while E[log p] does not means the port puts
-   the same average mass on the chosen action but spreads it slightly
-   differently across trials -- log-score punishes the low tail, E[p] does not.
+   E[log p] reproduced on all 3 schedules : YES
+   E[log p] residual signs: 2+/1-  (mean -0.0001)
+   Mixed signs at the rounding floor => consistent with pure 3-decimal
+   rounding of the reported values, i.e. a genuine reproduction.
 
    Subject-weighted pooled over the 3 eda schedules:
       reported (paper)   E[p] = 0.6008   E[log p] = -0.7190
-      published port     E[p] = 0.6021   E[log p] = -0.7143
-      corrected port     E[p] = 0.6155   E[log p] = -0.6996
-      re-fitted (held out)   E[p] = 0.6022   E[log p] = -0.5917
+      published port     E[p] = 0.6010   E[log p] = -0.7191
+      corrected port     E[p] = 0.6142   E[log p] = -0.7045
+      re-fitted (held out)   E[p] = 0.5944   E[log p] = -0.5985
 
    READ THIS BEFORE QUOTING ANY BASELINE E[p]:
    The paper's numbers describe the PUBLISHED (buggy) model. Any comparison

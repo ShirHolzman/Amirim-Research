@@ -283,7 +283,9 @@ def verify_against_live_matlab(regenerate=False, tolerance=TOLERANCE):
             f"{subject_id}: raw file has {len(c1)} trials, "
             f"MATLAB reference has {len(d)}")
 
-        p_alt1_hetero = catie_hetero(r1, r2, c1, mode="published")
+        # shipped_time_avg: the reference is the code AS SHIPPED (hetro.m:25), which
+        # time-averages the k-mixture weights. The project default is per_trial.
+        p_alt1_hetero = catie_hetero(r1, r2, c1, mode="published", weighting="shipped_time_avg")
         pc_hetero_py = p_of_observed_choice(p_alt1_hetero, c1)
         dev_hetero = np.abs(pc_hetero_py - d["pc_hetero"].to_numpy())
 

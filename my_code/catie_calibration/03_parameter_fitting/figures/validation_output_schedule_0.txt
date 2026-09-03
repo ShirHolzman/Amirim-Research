@@ -2,9 +2,9 @@
 PER-SCHEDULE VALIDATION AGAINST THE PAPER'S REPORTED VALUES
 ==============================================================================
 source: Data_resources/extracted_data/{E_p.md, E_log_p.md}  (paper Fig S5)
-scope : TRAINING -- schedules ['schedule_2', 'schedule_3', 'schedule_6', 'schedule_9', 'schedule_11']
+scope : SCHEDULE_0 -- schedules ['schedule_0']
 
-loaded cache 'training': 1,483 subjects x 100 trials
+loaded cache 'schedule_0': 549 subjects x 100 trials
 
 ==============================================================================
 1. SCHEDULE MAPPING AND SAMPLE SIZES
@@ -13,14 +13,10 @@ loaded cache 'training': 1,483 subjects x 100 trials
    The mapping is VERIFIED against our subject counts, not assumed.
 
    paper        ours            n reported   n ours   match
-   Schedule 3   schedule_2             538      538      OK
-   Schedule 4   schedule_3             607      607      OK
-   Schedule 7   schedule_6             144      144      OK
-   Schedule 10  schedule_9             107      107      OK
-   Schedule 12  schedule_11             87       87      OK
+   Schedule 1   schedule_0             549      549      OK
 
-   5/5 schedules match the reported n exactly.
-   => paper-k -> schedule_(k-1) mapping confirmed by n on all 5 schedules.
+   1/1 schedules match the reported n exactly.
+   => paper-k -> schedule_(k-1) mapping confirmed by n on all 1 schedules.
 
 ==============================================================================
 2. WHICH CONVENTIONS REPRODUCE THE PAPER? (k-weighting x trial 1)
@@ -36,12 +32,12 @@ loaded cache 'training': 1,483 subjects x 100 trials
    same-signed residual on every schedule is a systematic error.
 
    k-weighting       trial 1     max|dE[p]|  max|dE[logp]|   logp signs
-   per_trial         kept            0.0005         0.0004        3+/2-
-   per_trial         dropped         0.0014         0.0013        1+/4-
-   shipped_time_avg  kept            0.0008         0.0073        5+/0-
-   shipped_time_avg  dropped         0.0012         0.0065        5+/0-
+   per_trial         kept            0.0002         0.0004        1+/0-
+   per_trial         dropped         0.0019         0.0015        1+/0-
+   shipped_time_avg  kept            0.0002         0.0034        1+/0-
+   shipped_time_avg  dropped         0.0020         0.0046        1+/0-
 
-   => best: weighting='per_trial', trial 1 KEPT (worst error 0.0005)
+   => best: weighting='per_trial', trial 1 KEPT (worst error 0.0004)
    Sections 3-4 use those conventions.
    NOTE Phases 1-3 report their own headline numbers with trial 1 DROPPED
    (it carries no model information). That is a reporting choice and is
@@ -49,7 +45,7 @@ loaded cache 'training': 1,483 subjects x 100 trials
    this script does.
 
 ==============================================================================
-3. REPORTED vs OUR PORT vs RE-FITTED (per training schedule)
+3. REPORTED vs OUR PORT vs RE-FITTED (per schedule_0 schedule)
 ==============================================================================
    published port = bug-for-bug MATLAB  -> this is what should match the paper
    corrected port = Phase 1 bug fix     -> a DIFFERENT model; must not match
@@ -57,40 +53,32 @@ loaded cache 'training': 1,483 subjects x 100 trials
    conventions    = weighting='per_trial', trial 1 kept (from section 2)
 
    sched             n  E[p] rep      pub     diff     corr    refit
-   schedule_2      538     0.594   0.5938  -0.0002   0.6041   0.5848
-   schedule_3      607     0.639   0.6390  +0.0000   0.6636   0.6312
-   schedule_6      144     0.574   0.5745  +0.0005   0.5848   0.5724
-   schedule_9      107     0.557   0.5568  -0.0002   0.5681   0.5518
-   schedule_11      87     0.561   0.5609  -0.0001   0.5703   0.5506
+   schedule_0      549     0.676   0.6762  +0.0002   0.6784   0.6487
 
    sched             n  E[lgp] rep      pub     diff     corr    refit
-   schedule_2      538      -0.724  -0.7239  +0.0001  -0.7074  -0.6118
-   schedule_3      607      -0.608  -0.6076  +0.0004  -0.5936  -0.5310
-   schedule_6      144      -0.764  -0.7639  +0.0001  -0.7511  -0.6318
-   schedule_9      107      -0.785  -0.7852  -0.0002  -0.7709  -0.6658
-   schedule_11      87      -0.789  -0.7893  -0.0003  -0.7699  -0.6675
+   schedule_0      549      -0.586  -0.5856  +0.0004  -0.5829  -0.5095
 
 ==============================================================================
 4. VERDICT
 ==============================================================================
-   published port vs paper: max |dE[p]| = 0.0005, max |dE[log p]| = 0.0004  (tolerance 0.0006)
-   E[p]     reproduced on all 5 schedules : YES
-   E[log p] reproduced on all 5 schedules : YES
-   E[log p] residual signs: 3+/2-  (mean +0.0000)
-   Mixed signs at the rounding floor => consistent with pure 3-decimal
-   rounding of the reported values, i.e. a genuine reproduction.
+   published port vs paper: max |dE[p]| = 0.0002, max |dE[log p]| = 0.0004  (tolerance 0.0006)
+   E[p]     reproduced on all 1 schedules : YES
+   E[log p] reproduced on all 1 schedules : YES
+   E[log p] residual signs: 1+/0-  (mean +0.0004)
+   (sign pattern uninformative with 1 schedule: under pure rounding a uniform sign has probability 1.00. Judge this split on the
+   magnitudes above, and on the multi-schedule splits for the pattern.)
 
-   Subject-weighted pooled over the 5 training schedules:
-      reported (paper)   E[p] = 0.6059   E[log p] = -0.6886
-      published port     E[p] = 0.6058   E[log p] = -0.6884
-      corrected port     E[p] = 0.6220   E[log p] = -0.6733
-      re-fitted (in-sample)   E[p] = 0.5982   E[log p] = -0.5878
+   Subject-weighted pooled over the 1 schedule_0 schedules:
+      reported (paper)   E[p] = 0.6760   E[log p] = -0.5860
+      published port     E[p] = 0.6762   E[log p] = -0.5856
+      corrected port     E[p] = 0.6784   E[log p] = -0.5829
+      re-fitted (held out)   E[p] = 0.6487   E[log p] = -0.5095
 
    READ THIS BEFORE QUOTING ANY BASELINE E[p]:
    The paper's numbers describe the PUBLISHED (buggy) model. Any comparison
    of a re-fitted or recalibrated variant against the paper must state which
    baseline it uses, because published and corrected differ materially.
 
-   table -> C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\paper_validation_training.csv
-   figures -> C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\fig_validation_Ep.png
-              C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\fig_validation_Elogp.png
+   table -> C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\paper_validation_schedule_0.csv
+   figures -> C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\fig_validation_Ep_schedule_0.png
+              C:\Users\shirh\OneDrive - huji.ac.il\Amirim Research\my_code\catie_calibration\03_parameter_fitting\figures\fig_validation_Elogp_schedule_0.png

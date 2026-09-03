@@ -349,21 +349,14 @@ def catie_probabilities(rewards_1, rewards_2, is_choice_1, k=K_DEFAULT,
 
 
 def catie_hetero(rewards_1, rewards_2, is_choice_1, mode="fixed", ks=(0, 1, 2),
-                 weighting="published", tau=TAU, epsilon=EPSILON, phi=PHI,
+                 weighting="per_trial", tau=TAU, epsilon=EPSILON, phi=PHI,
                  n_trials=N_TRIALS, return_agents=False):
     """Heterogeneous CATIE: mixture over contingency depths k.
 
-    weighting="published" reproduces COMPETITION_..._hetro.m:25, which computes
-        mean(agents_choice_probabilities' * normalised_likelihoods, 2)
-    -- a 100x100 outer product collapsed by a row mean. That yields
-        p(t) = sum_k p_k(t) * mean_s w_k(s)
-    i.e. TIME-AVERAGED posterior weights applied uniformly to every trial, not the
-    per-trial sequential weighting the file's own comment (line 26) describes. It is
-    still a valid convex combination, and it is what produced the published numbers,
-    so it is the default.
-
-    weighting="per_trial" uses the intended line 26. Measured on the EDA set it is
-    slightly WORSE (E[log p] -0.6992 -> -0.7042), so it is a footnote, not a fix.
+    See mix_agents() for the two `weighting` values. The default, "per_trial", is
+    the Bayesian model average the paper's reported numbers were produced with;
+    "shipped_time_avg" reproduces the code as shipped (hetro.m:25) and is used only
+    for validating the port against live MATLAB.
     """
     P = np.vstack([
         catie_probabilities(rewards_1, rewards_2, is_choice_1, k=k, mode=mode,
@@ -374,10 +367,32 @@ def catie_hetero(rewards_1, rewards_2, is_choice_1, mode="fixed", ks=(0, 1, 2),
     return (p_mix, P) if return_agents else p_mix
 
 
-def mix_agents(P, is_choice_1, weighting="published", return_weights=False):
+WEIGHTINGS = ("per_trial", "shipped_time_avg")
+
+
+def mix_agents(P, is_choice_1, weighting="per_trial", return_weights=False):
     """Combine per-k P(alt 1) matrices into the heterogeneous mixture.
 
     P : (n_agents, n_trials) array of P(alt 1).
+
+    weighting="per_trial"        p(t) = sum_k P_k(t) * w_k(t), the sequential
+        Bayesian model average that hetro.m's own comment (line 26) describes.
+        VERIFIED 2026-08-30 to reproduce the paper's per-schedule Fig S5 values
+        (E[p] and E[log p]) to <= 0.0005 -- the 3-decimal rounding floor -- on all
+        9 non-Test schedules, provided the heuristic bug is kept and trial 1 is
+        included. This is what the paper's numbers were computed with, so it is the
+        project default.
+
+    weighting="shipped_time_avg"  p(t) = sum_k P_k(t) * mean_s w_k(s), which is what
+        hetro.m:25 as SHIPPED actually executes (`mean(P' * W, 2)`, a 100x100 outer
+        product collapsed by a row mean): the posterior weights are averaged over all
+        trials and applied uniformly, so every trial's forecast uses choices made
+        up to trial 99. It leaves a same-signed +0.005 residual in E[log p] against
+        the paper on every schedule. Keep it only for golden tests against the live
+        shipped MATLAB; never quote it as "the published model".
+
+    The old value "published" is rejected on purpose: it was ambiguous (mixing rule?
+    heuristic bug? parameter values?) and named the wrong one of the two.
 
     The MATLAB accumulates likelihoods of the CHOICES ACTUALLY MADE, so P must be
     converted to choice-probability space before the cumprod.
@@ -395,12 +410,12 @@ def mix_agents(P, is_choice_1, weighting="published", return_weights=False):
     L = np.cumprod(np.hstack([np.ones((n_agents, 1)), P_choice]), axis=1)
     W = L / L.sum(axis=0, keepdims=True)
     W = W[:, :-1]
-    if weighting == "published":
-        mixed = (P.T @ W).mean(axis=1)
-    elif weighting == "per_trial":
+    if weighting == "per_trial":
         mixed = (P * W).sum(axis=0)
+    elif weighting == "shipped_time_avg":
+        mixed = (P.T @ W).mean(axis=1)
     else:
-        raise ValueError(f"unknown weighting {weighting!r}")
+        raise ValueError(f"unknown weighting {weighting!r}; use one of {WEIGHTINGS}")
     return (mixed, W) if return_weights else mixed
 
 

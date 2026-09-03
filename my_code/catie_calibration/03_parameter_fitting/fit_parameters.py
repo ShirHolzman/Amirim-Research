@@ -64,7 +64,7 @@ from catie_core import EPSILON, PHI, TAU  # noqa: E402
 import metrics as M  # noqa: E402
 from catie_likelihood import (  # noqa: E402
     StateCache, mean_log_p, mean_p, negloglik_factory, p_choice_matrix,
-    p_alt1_single_k, mix_published, unpack, _logit, _sigmoid,
+    p_alt1_single_k, mix_per_trial, unpack, _logit, _sigmoid,
 )
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -335,7 +335,8 @@ def main():
     else:
         print("   => re-fitting genuinely exceeds even nonparametric recalibration, so the")
         print("      parameter values carry information a monotone transform cannot.")
-    print("\n   NOTE E[p] moves the OPPOSITE way (0.6158 -> 0.6027): the fit trades")
+    print(f"\n   NOTE E[p] moves the OPPOSITE way ({mean_p(ed, **PUBLISHED):.4f} -> "
+          f"{mean_p(ed, **best):.4f}): the fit trades")
     print("   mean-probability accuracy for log-score accuracy, which is exactly the")
     print("   E[p]/E[log p] dissociation Phase 2 identified.")
 

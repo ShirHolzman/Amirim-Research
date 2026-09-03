@@ -14,6 +14,17 @@ computed here, and only the published variant is asserted against the paper. Com
 the paper's numbers to our corrected model would be comparing two different models and
 would manufacture a discrepancy that is really the bug.
 
+TWO UNDOCUMENTED CONVENTIONS, BOTH DETERMINED EMPIRICALLY (section 2). Neither the paper
+nor its code states (a) which k-mixture weighting produced the reported numbers, nor
+(b) whether trial 1 -- fixed at p=0.5 by the model, so it drags both metrics toward the
+middle -- is included in the average. Section 2 scores all four combinations against the
+paper's own per-schedule values and picks the winner, rather than assuming either. The
+winner is `per_trial` + trial 1 KEPT: it reproduces every schedule to <= 5e-4, the exact
+3-decimal rounding floor, with mixed-sign residuals. The shipped `hetro.m:25`
+time-averaged weighting leaves a same-signed ~+0.005 residual in E[log p] on every
+schedule -- which is what this script previously certified as a "match" under a
+4x-too-loose tolerance. Sections 3-4 use whatever section 2 selects.
+
 SCHEDULE INDEXING. The paper labels schedules 1..12; this repo labels them
 schedule_0..schedule_11. The mapping (paper k -> schedule_{k-1}) is not assumed: it is
 verified by matching the reported n against our own subject counts, and asserted.
@@ -56,9 +67,12 @@ FIGDIR.mkdir(exist_ok=True)
 
 np.random.seed(42)
 
-# Phase 3 maximum-likelihood fit on the pooled TRAINING split (fit_parameters.py).
+# Phase 3 maximum-likelihood fit on the pooled TRAINING split (fit_parameters.py),
+# under the per-trial k-weighting. Re-derived at full precision 2026-09; the older
+# values (0.106812, 0.628011, 0.314217) were fitted under the shipped time-averaged
+# weighting and no longer correspond to any model this project reports.
 PUBLISHED_PARAMS = dict(tau=0.29, eps=0.30, phi=0.71)
-REFITTED_PARAMS = dict(tau=0.106812, eps=0.628011, phi=0.314217)
+REFITTED_PARAMS = dict(tau=0.114975, eps=0.702446, phi=0.338721)
 
 SPLIT_SCHEDULES = {
     "training": ("schedule_2", "schedule_3", "schedule_6", "schedule_9", "schedule_11"),
@@ -66,9 +80,14 @@ SPLIT_SCHEDULES = {
     "schedule_0": ("schedule_0",),
 }
 
-# Tolerance for calling our port a match to the paper. The paper reports 3 decimals,
-# so the rounding alone permits 5e-4; we allow a little more for the transcription.
-MATCH_TOL = 0.002
+# Tolerance for calling our port a match to the paper. The paper reports 3 decimals, so
+# rounding alone permits exactly 5e-4 and nothing legitimate exceeds it by much. The old
+# value of 0.002 was FOUR TIMES that floor, which is how a systematic ~+0.005 E[log p]
+# error (the shipped time-averaged k-weighting) previously passed as a match on E[p]
+# while the E[log p] failure was rationalised in prose instead of chased. Keep this
+# tight: a real reproduction lands at the rounding floor, and anything above it is a
+# finding, not noise.
+MATCH_TOL = 0.0006
 
 SPLIT = sys.argv[1] if len(sys.argv) > 1 else "training"
 assert SPLIT in SPLIT_SCHEDULES, f"unknown split {SPLIT!r}; pick one of {list(SPLIT_SCHEDULES)}"
@@ -117,8 +136,9 @@ def load_reported() -> pd.DataFrame:
 
 
 # ── scoring ──────────────────────────────────────────────────────────────────
-def score(cache: StateCache, params: dict, published_b: bool, drop_first: bool) -> tuple:
-    kw = dict(params, published_b=published_b, drop_first=drop_first)
+def score(cache: StateCache, params: dict, published_b: bool, drop_first: bool,
+          weighting: str = "per_trial") -> tuple:
+    kw = dict(params, published_b=published_b, drop_first=drop_first, weighting=weighting)
     return mean_p(cache, **kw), mean_log_p(cache, **kw)
 
 
@@ -182,28 +202,59 @@ def run() -> None:
         print(f"   => paper-k -> schedule_(k-1) mapping confirmed by n on all "
               f"{len(val)} schedules.")
 
-    # ---- 2. does trial 1 belong in the average? ---------------------------
+    # ---- 2. which conventions did the paper use? --------------------------
     print("\n" + "=" * 78)
-    print("2. IS TRIAL 1 INCLUDED IN THE PAPER'S AVERAGE?")
+    print("2. WHICH CONVENTIONS REPRODUCE THE PAPER? (k-weighting x trial 1)")
     print("=" * 78)
-    print("   Trial 1 is fixed at p=0.5 by the reference implementation, so including")
-    print("   it shifts both metrics. We do not know the paper's choice a priori --")
-    print("   we determine it empirically, by which one reproduces the reported values.\n")
+    print("   Two choices affect the reported averages and NEITHER is documented:")
+    print("     k-weighting : 'per_trial'        -- hetro.m's own commented line 26")
+    print("                   'shipped_time_avg' -- what hetro.m:25 actually runs")
+    print("     trial 1     : kept or dropped -- it is fixed at p=0.5 by the model,")
+    print("                   so including it drags both metrics toward the middle")
+    print("   Both are determined EMPIRICALLY, by which combination reproduces the")
+    print("   paper's own per-schedule values. A correct reproduction should land at")
+    print("   the 3-decimal rounding floor (5e-4) with MIXED-SIGN residuals; a")
+    print("   same-signed residual on every schedule is a systematic error.\n")
 
-    for drop_first in (True, False):
-        errs = []
-        for _, r in val.iterrows():
-            sub = cache.subset(cache.schedule == r["schedule"])
-            e_p, e_lp = score(sub, PUBLISHED_PARAMS, published_b=True, drop_first=drop_first)
-            errs.append((e_p - r["E_p_reported"], e_lp - r["E_logp_reported"]))
-        errs = np.array(errs)
-        label = "drop trial 1" if drop_first else "keep trial 1"
-        print(
-            f"   {label:<14} mean|dE[p]| = {np.abs(errs[:, 0]).mean():.4f}   "
-            f"mean|dE[log p]| = {np.abs(errs[:, 1]).mean():.4f}"
-        )
+    combos = []
+    for weighting in ("per_trial", "shipped_time_avg"):
+        for drop_first in (False, True):
+            errs = []
+            for _, r in val.iterrows():
+                sub = cache.subset(cache.schedule == r["schedule"])
+                e_p, e_lp = score(sub, PUBLISHED_PARAMS, published_b=True,
+                                  drop_first=drop_first, weighting=weighting)
+                errs.append((e_p - r["E_p_reported"], e_lp - r["E_logp_reported"]))
+            errs = np.array(errs)
+            n_pos = int((errs[:, 1] > 0).sum())
+            combos.append({
+                "weighting": weighting,
+                "drop_first": drop_first,
+                "max_dEp": float(np.abs(errs[:, 0]).max()),
+                "max_dElogp": float(np.abs(errs[:, 1]).max()),
+                "worst": float(max(np.abs(errs[:, 0]).max(), np.abs(errs[:, 1]).max())),
+                "signs": f"{n_pos}+/{len(errs) - n_pos}-",
+            })
 
-    print("\n   Using drop_first=True below (the convention used throughout Phases 1-3).")
+    print(f"   {'k-weighting':<18}{'trial 1':<10}{'max|dE[p]|':>12}{'max|dE[logp]|':>15}"
+          f"{'logp signs':>13}")
+    for c in combos:
+        print(f"   {c['weighting']:<18}{'dropped' if c['drop_first'] else 'kept':<10}"
+              f"{c['max_dEp']:>12.4f}{c['max_dElogp']:>15.4f}{c['signs']:>13}")
+
+    winner = min(combos, key=lambda c: c["worst"])
+    weighting_used, drop_first_used = winner["weighting"], winner["drop_first"]
+    print(f"\n   => best: weighting='{weighting_used}', trial 1 "
+          f"{'DROPPED' if drop_first_used else 'KEPT'} (worst error {winner['worst']:.4f})")
+    assert weighting_used == "per_trial" and not drop_first_used, (
+        "the paper's conventions changed: expected per_trial + trial 1 kept, got "
+        f"{weighting_used} + drop_first={drop_first_used}. Investigate before trusting "
+        "anything below -- this assertion encodes a verified 2026-09 finding.")
+    print("   Sections 3-4 use those conventions.")
+    print("   NOTE Phases 1-3 report their own headline numbers with trial 1 DROPPED")
+    print("   (it carries no model information). That is a reporting choice and is")
+    print("   unrelated to reproducing the paper's absolute values, which is what")
+    print("   this script does.")
 
     # ---- 3. the comparison ------------------------------------------------
     print("\n" + "=" * 78)
@@ -211,14 +262,17 @@ def run() -> None:
     print("=" * 78)
     print("   published port = bug-for-bug MATLAB  -> this is what should match the paper")
     print("   corrected port = Phase 1 bug fix     -> a DIFFERENT model; must not match")
-    print("   re-fitted      = Phase 3 params, IN-SAMPLE here (fitted on pooled training)\n")
+    print("   re-fitted      = Phase 3 params, IN-SAMPLE here (fitted on pooled training)")
+    print(f"   conventions    = weighting='{weighting_used}', trial 1 "
+          f"{'dropped' if drop_first_used else 'kept'} (from section 2)\n")
 
     recs = []
     for _, r in val.iterrows():
         sub = cache.subset(cache.schedule == r["schedule"])
-        pub_p, pub_lp = score(sub, PUBLISHED_PARAMS, published_b=True, drop_first=True)
-        fix_p, fix_lp = score(sub, PUBLISHED_PARAMS, published_b=False, drop_first=True)
-        ref_p, ref_lp = score(sub, REFITTED_PARAMS, published_b=False, drop_first=True)
+        kw = dict(drop_first=drop_first_used, weighting=weighting_used)
+        pub_p, pub_lp = score(sub, PUBLISHED_PARAMS, published_b=True, **kw)
+        fix_p, fix_lp = score(sub, PUBLISHED_PARAMS, published_b=False, **kw)
+        ref_p, ref_lp = score(sub, REFITTED_PARAMS, published_b=False, **kw)
         recs.append(
             {
                 "schedule": r["schedule"],
@@ -273,14 +327,30 @@ def run() -> None:
     # Subject-weighted pooled figures, so the training split can be quoted as a whole.
     w = res["n"].to_numpy(dtype=float)
     _smp = "in-sample" if SPLIT == "training" else "held out"
-    if ok_p and not ok_lp:
-        same = bool((res["dE_logp"] > 0).all() or (res["dE_logp"] < 0).all())
-        print(f"   NOTE: every E[log p] residual has the {'SAME' if same else 'mixed'} sign "
-              f"(mean {res['dE_logp'].mean():+.4f}).")
-        print("   A same-signed residual on every schedule is a SYSTEMATIC difference, not")
-        print("   rounding noise. E[p] matching while E[log p] does not means the port puts")
-        print("   the same average mass on the chosen action but spreads it slightly")
-        print("   differently across trials -- log-score punishes the low tail, E[p] does not.")
+    n_pos = int((res["dE_logp"] > 0).sum())
+    all_same_sign = bool((res["dE_logp"] > 0).all() or (res["dE_logp"] < 0).all())
+    print(f"   E[log p] residual signs: {n_pos}+/{len(res) - n_pos}-  "
+          f"(mean {res['dE_logp'].mean():+.4f})")
+    # The sign pattern is only evidence when there are enough schedules for it to be
+    # surprising: under pure rounding, P(all same sign) = 2^(1-n). With n < 3 that is
+    # >= 0.5, so a uniform sign says nothing at all and must not be reported as if it
+    # did (schedule_0 is a single schedule -- n=1 makes it a certainty, not a finding).
+    SIGN_TEST_MIN_SCHEDULES = 3
+    if len(res) < SIGN_TEST_MIN_SCHEDULES:
+        print(f"   (sign pattern uninformative with {len(res)} schedule"
+              f"{'s' if len(res) != 1 else ''}: under pure rounding a uniform sign has "
+              f"probability {2.0 ** (1 - len(res)):.2f}. Judge this split on the")
+        print("   magnitudes above, and on the multi-schedule splits for the pattern.)")
+    elif all_same_sign:
+        print(f"   *** WARNING: every E[log p] residual has the SAME sign across "
+              f"{len(res)} schedules")
+        print(f"   (probability {2.0 ** (1 - len(res)):.3f} under pure rounding). That is a")
+        print("   SYSTEMATIC difference, not rounding noise -- exactly the signature of")
+        print("   the shipped time-averaged k-weighting found in 2026-09. Do not explain")
+        print("   it away in prose; find the cause.")
+    else:
+        print("   Mixed signs at the rounding floor => consistent with pure 3-decimal")
+        print("   rounding of the reported values, i.e. a genuine reproduction.")
     print()
     print(f"   Subject-weighted pooled over the {len(res)} {SPLIT} schedules:")
     for lbl, col_p, col_l in [

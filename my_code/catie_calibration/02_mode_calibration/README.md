@@ -9,11 +9,13 @@ presuppose which partition reveals that structure — it **adjudicates** between
 candidates, with the previous choice (`c_prev`) as the baseline every richer
 partition must beat, and reports the result honestly either way.
 
-Model: the **corrected** ("fixed") CATIE likelihood, k∈{0,1,2} published mixture.
+Model: the **corrected** ("fixed") CATIE likelihood, k∈{0,1,2} **per-trial** mixture
+(the k-weighting the paper's own numbers match; the shipped time-averaged variant
+is kept only for MATLAB golden tests -- see `../catie_core.py:mix_agents`).
 §2 re-runs the central split under the *published* model too, so the robustness
 claim is shown rather than asserted.
 
-Data: **EDA + Training + schedule_0** (2,524 subjects, 249,876 trials after
+Data: **EDA + Training + schedule_0** (2,528 subjects, 250,272 trials after
 dropping trial 1). **Test is excluded and asserted absent** — touched exactly once,
 at the end of the project.
 
@@ -22,6 +24,12 @@ at the end of the project.
 > ways: the partition search was incomplete (missing the strongest partition), and
 > one section was built on a circular quantity. Both are fixed below; §"What the
 > audit changed" records what the earlier version claimed.
+
+> **Recomputed 2026-09 under the per-trial k-mixture weighting**, after the
+> discovery that the shipped `hetro.m` time-averages the BMA weights while the
+> paper's numbers use the per-trial rule (see the Phase 1 README's resolved-
+> discrepancy note). Every number moved at the 2nd–3rd decimal; no conclusion
+> changed.
 
 ## Partitions considered
 
@@ -46,12 +54,12 @@ the mandatory baseline; every partition below is also tested crossed with it
 
 | c_prev | n | predicted | empirical | gap |
 |---|---|---|---|---|
-| 0 (prior choice unbiased) | 91,548 | 0.249 | 0.454 | **+0.205** |
-| 1 (prior choice biased) | 158,328 | 0.848 | 0.735 | **−0.114** |
-| **aggregate** | 249,876 | — | — | **+0.003** |
+| 0 (prior choice unbiased) | 91,752 | 0.246 | 0.454 | **+0.208** |
+| 1 (prior choice biased) | 158,520 | 0.848 | 0.734 | **−0.113** |
+| **aggregate** | 250,272 | — | — | **+0.004** |
 
 Near-total cancellation in the mean, from two large, oppositely-signed strata.
-Present under the published model too (+0.213 / −0.087, aggregate +0.023), so it
+Present under the published model too (+0.216 / −0.087, aggregate +0.024), so it
 does not depend on the Phase 1 bug fix.
 
 ### 2. The strongest partition is `c_prev × run length`, and the gap reverses sign
@@ -61,30 +69,30 @@ does not depend on the Phase 1 bug fix.
 
 | partition | R² | vs `c_prev` |
 |---|---|---|
-| **`c_prev × streak_bin`** | **0.180** | **+0.076** |
-| `c_prev × p_alt1_bin` | 0.149 | +0.045 |
-| `p_alt1_bin` (20 quantiles) | 0.149 | +0.045 |
-| `c_prev × trial_phase` | 0.124 | +0.020 |
-| `hard_argmax` | 0.121 | +0.016 |
-| `c_prev` (baseline) | 0.104 | — |
+| **`c_prev × streak_bin`** | **0.178** | **+0.072** |
+| `c_prev × p_alt1_bin` | 0.144 | +0.039 |
+| `p_alt1_bin` (20 quantiles) | 0.144 | +0.039 |
+| `c_prev × trial_phase` | 0.125 | +0.019 |
+| `hard_argmax` | 0.120 | +0.015 |
+| `c_prev` (baseline) | 0.106 | — |
 | `streak_bin` / `trial_phase` / `reward_rate_bin` / `schedule` alone | ≤0.005 | — |
 
 The substance (`fig3`, `gap_by_cprev_streak.csv`):
 
 ```
-c_prev=0:  run 1 → +0.347   run 2 → +0.213  ...  run 6+ → −0.072
-c_prev=1:  run 1 → −0.258   run 2 → −0.170  ...  run 6+ → +0.019
+c_prev=0:  run 1 → +0.348   run 2 → +0.215  ...  run 6+ → −0.060
+c_prev=1:  run 1 → −0.256   run 2 → −0.168  ...  run 6+ → +0.017
 ```
 
 Monotone in run length, and it **reverses sign inside both strata**. So the
-headline +0.205/−0.114 is *itself* an average over oppositely-signed sub-strata —
+headline +0.208/−0.113 is *itself* an average over oppositely-signed sub-strata —
 the same failure mode this chapter is about, one level down. Mechanically:
 **CATIE's constant φ over-predicts perseveration after short runs and
 under-predicts it after long ones.**
 
 ### 3. The noise ceiling is ≈0.26 — and the obvious way to estimate it is wrong
 
-Without a ceiling, R²=0.104 is uninterpretable. Deriving one (full mathematics in
+Without a ceiling, R²=0.106 is uninterpretable. Deriving one (full mathematics in
 the next section): for a partition `L`, R²(L) = 1 − E[Var(gap|L)]/Var(gap), and the
 finest history partition maximises this, giving
 
@@ -93,18 +101,18 @@ finest history partition maximises this, giving
 Estimating `q` is the whole difficulty, and **the error is directional**. An
 underfit q̂ is shrunk toward 0.5, so q̂(1−q̂) *overstates* the noise and
 *understates* the ceiling. A logistic regression gives ≈0.17–0.18 — and
-`c_prev × streak_bin` scores **0.180**, which **exceeds it**. A bound an observed
+`c_prev × streak_bin` scores **0.178**, which **exceeds it**. A bound an observed
 partition surpasses is not a bound; that is how the error was caught.
 
 With a cross-validated gradient booster (ECE of q̂ = 0.004, i.e. well calibrated):
 
 | estimator | value |
 |---|---|
-| plug-in, 1 − E[q̂(1−q̂)]/Var(gap) | **0.261** |
-| rigorous bound, 1 − OOF-Brier/Var(gap) | **0.268** (ceiling ≥ this) |
+| plug-in, 1 − E[q̂(1−q̂)]/Var(gap) | **0.257** |
+| rigorous bound, 1 − OOF-Brier/Var(gap) | **0.265** (ceiling ≥ this) |
 | logistic-regression estimate (**too low**) | ~0.17 |
 
-Against ≈0.26: `c_prev` alone reaches **40%** of achievable; `c_prev × streak_bin`
+Against ≈0.26: `c_prev` alone reaches **41%** of achievable; `c_prev × streak_bin`
 reaches **69%**. So roughly a third of the *explainable* structure is still
 unaccounted for — there is more to find, and the earlier "one-dimensional" framing
 was doubly wrong.
@@ -117,16 +125,16 @@ These are very different achievements:
 
 | partition | R² | E Var(y) | E Var(p) | E Cov |
 |---|---|---|---|---|
-| `c_prev` | 0.104 | 0.2144 | 0.0101 | +0.0110 |
-| `c_prev × streak_bin` | 0.180 | 0.1912 | 0.0092 | +0.0075 |
-| `p_alt1_bin` | 0.149 | 0.1931 | 0.0005 | +0.0007 |
-| out-of-fold q̂, 50 bins (**best y-predictor**) | **0.024** | **0.1653** | 0.0544 | −0.0004 |
-| (unconditional) | 0.000 | 0.2327 | 0.0934 | +0.0500 |
+| `c_prev` | 0.106 | 0.2144 | 0.0107 | +0.0110 |
+| `c_prev × streak_bin` | 0.178 | 0.1912 | 0.0098 | +0.0072 |
+| `p_alt1_bin` | 0.144 | 0.1952 | 0.0006 | +0.0008 |
+| out-of-fold q̂, 50 bins (**best y-predictor**) | **0.020** | **0.1669** | 0.0547 | −0.0004 |
+| (unconditional) | 0.000 | 0.2327 | 0.0949 | +0.0503 |
 
 The q̂ row is the point: it predicts `y` better than anything else and scores
 almost nothing, because it leaves `p` heterogeneous.
 
-**`c_prev` removes 89% of the variance in CATIE's own forecast** (0.0934 → 0.0101).
+**`c_prev` removes 89% of the variance in CATIE's own forecast** (0.0949 → 0.0107).
 Combined with finding #6 — that `c_prev` nearly *determines* which side of 0.5 the
 forecast falls on — this means **"`c_prev` explains the calibration gap" is
 substantially a statement about CATIE's architecture (φ=0.71 dominates `p`), not
@@ -150,11 +158,13 @@ is behaviourally irrelevant. The R² table alone invites the opposite reading.
 
 With φ=0.71 on the previous choice and exploration capped at ε=0.30, when the trend
 branch is not testable (H=0, **83.4%** of trials) the model *cannot* produce
-P(alt1) > 0.353 if `c_prev=0`, nor < 0.647 if `c_prev=1`. **0 violations in 208,429
-H=0 trials.** Crossings exist (1,527 = 0.61%) and every one has H=1 — the heuristic
-is the only mechanism able to outvote inertia (1,273 upward all with b=1; 254
+P(alt1) > 0.353 if `c_prev=0`, nor < 0.647 if `c_prev=1`. **0 violations in 208,757
+H=0 trials.** Crossings exist (1,779 = 0.71%) and every one has H=1 — the heuristic
+is the only mechanism able to outvote inertia (1,354 upward all with b=1; 425
 downward all with b=0). Falsification test: the published model must show *zero*
-upward crossings since b≡0 there — confirmed 0.
+upward crossings since b≡0 there — confirmed 0 (it shows *more* downward
+crossings, 860 vs 425: its dead heuristic branch diverts τ to alternative 2
+unconditionally whenever H=1).
 
 ### 7. The E[p] vs E[log p] mechanism — tested, not asserted (§8)
 
@@ -163,10 +173,10 @@ E[log p]. It is now tested by recalibrating and observing the trade:
 
 | forecast | E[p] | E[log p] | ECE |
 |---|---|---|---|
-| CATIE as-is | 0.6340 | −0.6550 | 0.154 |
-| `c_prev` stratum rate | 0.5713 | −0.6190 | 0.000 |
-| `c_prev × streak_bin` rate | 0.6176 | **−0.5630** | 0.000 |
-| isotonic on `p_alt1` (in-sample) | 0.6119 | −0.5694 | 0.000 |
+| CATIE as-is | 0.6341 | −0.6595 | 0.149 |
+| `c_prev` stratum rate | 0.5712 | −0.6191 | 0.000 |
+| `c_prev × streak_bin` rate | 0.6175 | **−0.5631** | 0.000 |
+| isotonic on `p_alt1` (in-sample) | 0.6088 | −0.5728 | 0.000 |
 
 Correcting the conditional gap **improves E[log p] while lowering E[p]** — exactly
 the trade the disagreement consists of.
@@ -237,24 +247,25 @@ Two consequences:
   ```
   and this bound *tightens* as q̂ improves. It requires no assumption about q̂.
 
-**Step 5 — the numbers.** `Var(gap) = 0.2260`. With 5-fold subject-grouped CV
+**Step 5 — the numbers.** `Var(gap) = 0.2270`. With 5-fold subject-grouped CV
 (`GroupKFold`, so no subject spans folds) on history-only features:
 
 | q̂ model | E[q̂(1−q̂)] | plug-in | OOF-Brier bound |
 |---|---|---|---|
-| constant base rate | 0.2327 | −0.030 | — |
-| logistic regression | 0.1875 | 0.170 | 0.166 |
-| gradient boosting | 0.1671 | **0.261** | **0.268** |
+| constant base rate | 0.2327 | −0.025 | — |
+| logistic regression | 0.1888 | 0.168 | 0.165 |
+| gradient boosting | 0.1687 | **0.257** | **0.265** |
 
 Monotone increase with model capacity, exactly as Step 4 predicts. The logistic
-estimate is **falsified empirically**: `c_prev × streak_bin` achieves R² = 0.180,
-above the 0.170 it implies. The gradient booster's q̂ has ECE = 0.004, so its
-plug-in is trustworthy, and its rigorous bound (0.268) agrees. **Ceiling ≈ 0.26.**
+estimate is **falsified empirically**: `c_prev × streak_bin` achieves R² = 0.178,
+above the 0.168 it implies. The gradient booster's q̂ has ECE = 0.004, so its
+plug-in is trustworthy, and its rigorous bound (0.265) agrees. **Ceiling ≈ 0.26.**
 
-**Caveat.** Step 2 assumes `p` is exactly history-measurable. Under the published
-k-weighting `p` depends weakly on the whole sequence (see the caveat in
-`responsibility.py`); the effect is small (mean |Δp| = 0.0099) and second-order
-here, and the Step-4 bound does not rely on Step 2 being exact.
+**Caveat.** Step 2 assumes `p` is exactly history-measurable. Under the per-trial
+k-weighting used throughout since 2026-09, it is: the mixture weight at trial t is
+built from choices strictly before t. (Under the legacy shipped time-averaged
+weighting this held only approximately, mean |Δp| = 0.0099 — one more reason the
+per-trial rule is the right default. The Step-4 bound never relied on Step 2.)
 
 ---
 
@@ -277,7 +288,7 @@ for inertia `P(alt1|inertia) = c_prev ∈ {0,1}`, so its term is exactly `w_I` w
 regime's maximum (heuristic ≤ τ = 0.29; contingent ≤ (1−τH)(1−p_exp)·0.29 < w_I;
 exploration ≤ (1−τH)·0.15 < w_I). The inequality is per-k, so it survives the convex
 k-mixture. Therefore **`soft_argmax == inertia` ⟺ `y == c_prev`, identically** —
-verified at **0 mismatches in 249,876 trials**. Every "empirical" number in the old
+verified at **0 mismatches in 250,272 trials**. Every "empirical" number in the old
 §7 was reconstructible from a 2×4 count table, and fig3 plotted four steeply
 *decreasing* reliability curves — the visual grammar of catastrophic miscalibration
 — for what is actually a deterministic identity. A caption cannot fix that. The
@@ -316,5 +327,5 @@ python my_code/catie_calibration/02_mode_calibration/conditional_calibration.py
 python my_code/catie_calibration/02_mode_calibration/verify_cprev_separation.py
 ```
 
-`pip install pandas numpy scipy matplotlib scikit-learn`. A few minutes for 2,524
+`pip install pandas numpy scipy matplotlib scikit-learn`. A few minutes for 2,528
 subjects × 3 k-agents, plus ~1 min for the 5-fold ceiling estimate.
