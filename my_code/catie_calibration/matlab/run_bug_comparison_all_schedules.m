@@ -4,7 +4,7 @@
 % MATLAB, no Python involved -- on every subject across all 12 reward
 % schedules, and reports the E[p] / E[log p] impact of the heuristic-mode
 % fix described in
-%   my_code/catie_calibration/01_bug_correction/VERIFICATION_MEMO.md
+%   my_code/catie_calibration/01_bug_correction/README.md
 %
 % Original model:
 %   Data_resources/competition_analysis-main/CATIE/

@@ -73,7 +73,6 @@ script (not the model), worth reading as an example of not trusting a first run.
 
 | File | Contents |
 |---|---|
-| `VERIFICATION_MEMO.md` | Memo for supervisors |
 | `figures/output.txt` | Full transcript |
 | `figures/fig1_probability_distributions.png` | p and log p distributions, both models |
 | `figures/fig2_trend_trial_scatter.png` | Published vs corrected P(alt 1), trend trials |
