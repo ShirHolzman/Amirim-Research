@@ -55,6 +55,21 @@ def accuracy(p_alt1, outcome) -> float:
 
 
 # ── Calibration ──────────────────────────────────────────────────────────────────
+def _bin_edges(p, n_bins=10, strategy="uniform"):
+    if strategy == "uniform":
+        return np.linspace(0.0, 1.0, n_bins + 1)
+    if strategy == "quantile":
+        edges = np.unique(np.quantile(p, np.linspace(0.0, 1.0, n_bins + 1)))
+        if len(edges) < 2:
+            edges = np.array([0.0, 1.0])
+        return edges
+    raise ValueError(f"unknown strategy {strategy!r}")
+
+
+def _bin_index(p, edges):
+    return np.clip(np.digitize(p, edges[1:-1], right=False), 0, len(edges) - 2)
+
+
 def reliability_table(p_alt1, outcome, n_bins=10, strategy="uniform",
                       min_count=1) -> pd.DataFrame:
     """Binned reliability table.
@@ -67,16 +82,8 @@ def reliability_table(p_alt1, outcome, n_bins=10, strategy="uniform",
     p = np.asarray(p_alt1, float)
     y = np.asarray(outcome, float)
 
-    if strategy == "uniform":
-        edges = np.linspace(0.0, 1.0, n_bins + 1)
-    elif strategy == "quantile":
-        edges = np.unique(np.quantile(p, np.linspace(0.0, 1.0, n_bins + 1)))
-        if len(edges) < 2:
-            edges = np.array([0.0, 1.0])
-    else:
-        raise ValueError(f"unknown strategy {strategy!r}")
-
-    idx = np.clip(np.digitize(p, edges[1:-1], right=False), 0, len(edges) - 2)
+    edges = _bin_edges(p, n_bins, strategy)
+    idx = _bin_index(p, edges)
     rows = []
     for b in range(len(edges) - 1):
         m = idx == b
@@ -149,6 +156,98 @@ def bootstrap_ci(values, subject_ids, statistic=np.mean, n_boot=10_000,
     boot = statistic(per_subj[draws], axis=1)
     lo, hi = np.quantile(boot, [alpha / 2, 1 - alpha / 2])
     return float(statistic(per_subj)), float(lo), float(hi)
+
+
+def cluster_bootstrap(stat_fn, subject_ids, *arrays, n_boot=2000, alpha=0.05,
+                      seed=DEFAULT_SEED):
+    """Subject-cluster bootstrap of an arbitrary (possibly vector-valued) statistic.
+
+    `arrays` are trial-level and aligned with `subject_ids`. Each resample draws
+    SUBJECTS with replacement and hands `stat_fn` the concatenation of the chosen
+    subjects' trials (in subject-sorted order), so per-bin empirical rates, ECE,
+    E[p], E[log p] or any other function of the trial-level data can be given a
+    clustered CI. `stat_fn(*arrays)` must return a scalar or a 1-D array (e.g. one
+    value per reliability bin); NaNs (empty bins) are ignored by the percentiles.
+
+    Returns (point, lo, hi): the statistic on the original data and the
+    alpha/2, 1-alpha/2 percentiles over resamples, elementwise. Scalars come back
+    as floats, vectors as arrays.
+
+    With one trial per subject this is an ordinary trial bootstrap; with the
+    statistic = mean of per-subject means and equal trial counts it reproduces
+    `bootstrap_ci` exactly (same seed, same draw shape).
+    """
+    ids = np.asarray(subject_ids)
+    arrs = [np.asarray(a) for a in arrays]
+    if not arrs:
+        raise ValueError("cluster_bootstrap needs at least one trial-level array")
+    n_trials = len(ids)
+    for a in arrs:
+        if len(a) != n_trials:
+            raise ValueError("every array must be aligned with subject_ids")
+
+    # sort trials by subject so each subject is one contiguous slice
+    order = np.argsort(ids, kind="stable")
+    _, starts, counts = np.unique(ids[order], return_index=True, return_counts=True)
+    sorted_arrs = [a[order] for a in arrs]
+    n_subj = len(starts)
+
+    point = np.asarray(stat_fn(*arrs), dtype=float)
+    scalar = point.ndim == 0
+
+    rng = np.random.default_rng(seed)
+    draws = rng.integers(0, n_subj, size=(n_boot, n_subj))
+    boot = np.empty((n_boot,) + point.shape)
+    for b in range(n_boot):
+        pick = draws[b]
+        c = counts[pick]
+        csum = np.cumsum(c)
+        # idx = concatenation of the chosen subjects' slices, built without a loop:
+        # element j of block k is starts[pick[k]] + (j - block offset)
+        idx = np.arange(csum[-1]) + np.repeat(starts[pick] - (csum - c), c)
+        boot[b] = np.asarray(stat_fn(*[a[idx] for a in sorted_arrs]), dtype=float)
+    lo, hi = np.nanpercentile(boot, [100 * alpha / 2, 100 * (1 - alpha / 2)], axis=0)
+    if scalar:
+        return float(point), float(lo), float(hi)
+    return point, lo, hi
+
+
+def reliability_table_ci(p_alt1, outcome, subject_ids, n_bins=10, strategy="uniform",
+                         min_count=1, n_boot=2000, seed=DEFAULT_SEED) -> pd.DataFrame:
+    """`reliability_table` plus subject-cluster-bootstrap columns `emp_lo`, `emp_hi`
+    (95% CI of each bin's empirical rate). Bin edges are fixed from the original
+    data (for "quantile" too), so the CI is for the rate inside a fixed bin."""
+    p = np.asarray(p_alt1, float)
+    y = np.asarray(outcome, float)
+    table = reliability_table(p, y, n_bins=n_bins, strategy=strategy, min_count=min_count)
+    if table.empty:
+        return table
+    edges = _bin_edges(p, n_bins, strategy)
+    bins = table["bin"].to_numpy()
+
+    n_all = len(edges) - 1
+
+    def per_bin_rate(pp, yy):
+        idx = _bin_index(pp, edges)
+        cnt = np.bincount(idx, minlength=n_all)[bins]
+        tot = np.bincount(idx, weights=yy, minlength=n_all)[bins]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(cnt > 0, tot / np.maximum(cnt, 1), np.nan)
+
+    _, lo, hi = cluster_bootstrap(per_bin_rate, subject_ids, p, y, n_boot=n_boot, seed=seed)
+    table = table.copy()
+    table["emp_lo"] = lo
+    table["emp_hi"] = hi
+    return table
+
+
+def ece_ci(p_alt1, outcome, subject_ids, n_bins=10, strategy="uniform", n_boot=2000,
+           seed=DEFAULT_SEED):
+    """ECE with a subject-cluster-bootstrap 95% CI: (point, lo, hi)."""
+    return cluster_bootstrap(
+        lambda pp, yy: ece(pp, yy, n_bins=n_bins, strategy=strategy),
+        subject_ids, np.asarray(p_alt1, float), np.asarray(outcome, float),
+        n_boot=n_boot, seed=seed)
 
 
 def paired_subject_test(values_a, values_b, subject_ids, n_boot=10_000,

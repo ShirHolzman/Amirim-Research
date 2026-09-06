@@ -16,7 +16,8 @@ is fixable. This project answers that.
 ```
 catie_calibration/
 ├── catie_core.py         exact port of the competition CATIE likelihood
-├── metrics.py            E[p], E[log p], ECE, MCE, Brier, subject-clustered bootstrap
+├── metrics.py            E[p], E[log p], ECE, MCE, Brier; subject-clustered bootstrap / paired
+│                         tests, and cluster_bootstrap for binned quantities (per-bin rates, ECE)
 ├── sanitize_splits.py    raw subject CSVs -> one tidy CSV per split
 ├── golden_test.py        BLOCKING correctness gate (run this first)
 ├── data/                 generated, gitignored

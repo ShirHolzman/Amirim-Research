@@ -49,15 +49,18 @@ structurally impossible.
 | schedule_0 (OOD) | −0.5818 | −0.5076 | +0.074 |
 
 **Verified against four independent optimisers**, including a *global* one with no
-start point:
+start point (transcript §2b; regenerated on every run into `optimiser_agreement.csv`):
 
 | optimiser | τ | ε | φ | nll |
 |---|---|---|---|---|
 | Nelder-Mead (8 restarts) | 0.1150 | 0.7024 | 0.3387 | 0.586735 |
 | L-BFGS-B | 0.1150 | 0.7025 | 0.3387 | 0.586735 |
 | Powell | 0.1150 | 0.7021 | 0.3390 | 0.586735 |
-| **differential evolution** (global) | **0.1150** | **0.7024** | **0.3387** | **0.586735** |
-| coarse grid (15³) | 0.1029 | 0.6821 | 0.3179 | 0.586939 |
+| **differential evolution** (global; logit bounds ±5, seed 42, no start point) | **0.1150** | **0.7024** | **0.3387** | **0.586735** |
+| coarse grid (15³ on the probability scale, no refinement) | 0.1143 | 0.6929 | 0.3714 | 0.587003 |
+
+The three gradient/global solvers agree with Nelder-Mead to 3×10⁻⁸ in nll; the grid
+is only a sanity check that no other basin exists.
 
 ### 2. No ε/φ ridge — contrary to the project plan's prediction
 
@@ -76,18 +79,28 @@ Hessian-implied correlations of < 0.11; the clustered sandwich replaces both.)
 
 This is the chapter's central result.
 
-| model (fit on Training, scored on EDA) | #par | E[log p] | ECE | gain |
-|---|---|---|---|---|
-| published CATIE | 0 | −0.7046 | 0.174 | — |
-| + temperature (T=2.03) | 1 | −0.6235 | 0.084 | +0.081 (76%) |
-| + Platt | 2 | −0.6193 | 0.071 | +0.085 |
-| **+ isotonic (non-parametric)** | np | **−0.5988** | 0.023 | **+0.106 (99%)** |
-| re-fitted (τ, ε, φ) | 3 | −0.5975 | 0.029 | +0.107 |
+| model (fit on Training, scored on EDA) | #par | E[log p] | ECE | gain | E[p] |
+|---|---|---|---|---|---|
+| published CATIE | 0 | −0.7046 | 0.174 | — | 0.6153 |
+| + temperature (T=2.03) | 1 | −0.6235 | 0.084 | +0.081 (76%) | 0.5735 |
+| + Platt | 2 | −0.6193 | 0.071 | +0.085 | 0.5778 |
+| **+ isotonic (non-parametric)** | np | **−0.5988** | 0.022 | **+0.106 (98.8%)** | 0.5937 |
+| re-fitted (τ, ε, φ) | 3 | −0.5975 | 0.029 | +0.107 | 0.5953 |
+
+All three maps are fitted on Training with trial 1 (p = 0.5 by construction, never
+scored) excluded; they are applied to every trial and scored with trial 1 dropped.
+Every recalibrated row *loses* E[p] relative to the published model (0.6153): for a
+shrinkage p → 0.5 + α(p − 0.5), ΔE[p] = (α − 1)(E[p] − 0.5), which is negative
+whenever α < 1 and E[p] > 0.5.
 
 **The isotonic row is the decisive comparison, not temperature.** Isotonic is the
-best *possible* monotone recalibration of `p_alt1` — it has zero psychological
-content and can use nothing beyond the ordering of CATIE's own forecast. It captures
-**99%** of the 3-parameter re-fit's gain.
+best monotone recalibration of `p_alt1` *that Training can fit* — it has zero
+psychological content and can use nothing beyond the ordering of CATIE's own
+forecast. Empirically it captures **98.8%** of the 3-parameter re-fit's gain:
+isotonic/re-fit gain ratio 0.988, subject-cluster bootstrap 95% CI **[0.968, 1.009]**
+(2,000 resamples of the 496 EDA subjects), and the re-fit is not reliably better
+than isotonic on EDA (paired subject-level test, M2 − isotonic = +0.0013
+[−0.0009, +0.0036], p = 0.28; `isotonic_vs_refit.csv`).
 
 > **The fitted parameters are buying calibration, not revised psychology. They should
 > not be reported as new estimates of exploration or inertia tendencies.**
@@ -96,7 +109,8 @@ content and can use nothing beyond the ordering of CATIE's own forecast. It capt
 
 Why does re-fitting reduce to recalibration? Because ε controls the probability
 floor. Since `p_exp = ε(1 + s + s̄)/3` and the exploration mode contributes
-`p_exp/2` toward 0.5, ε sets the attainable range at roughly [ε/6, 1−ε/6]:
+`p_exp/2` toward 0.5, ε sets the attainable range at roughly [ε/6, 1−ε/6]
+(`p_alt1` on EDA, trial 1 dropped; transcript §4b, `forecast_distribution.csv`):
 
 | | min | median | max | SD | % extreme (>0.9 or <0.1) |
 |---|---|---|---|---|---|
@@ -110,15 +124,24 @@ the probability floor — which is now demonstrated rather than speculated.)*
 
 ### 5. Per-schedule fits corroborate this directly
 
-| | range across 5 schedules |
-|---|---|
-| φ (inertia) | **0.260 – 0.387** — tight, stable |
-| τ (trend) | 0.080 – 0.208 |
-| ε (exploration) | **0.496 – 0.975** — enormous |
+Each Training schedule is fitted alone (`per_schedule_fits.csv`, with
+subject-clustered sandwich SEs per schedule), and the between-schedule spread is
+tested against those SEs with a Cochran Q heterogeneity test (inverse-variance
+weights, df = 4; `per_schedule_heterogeneity.csv`):
 
-**φ, the genuinely psychological parameter, transfers across schedules; ε does not.**
-ε swings by a factor of two because it is absorbing schedule-specific
-*miscalibration*, not measuring a schedule-specific exploration rate (`fig3`).
+| | range across 5 schedules | Q | p | I² |
+|---|---|---|---|---|
+| φ (inertia) | **0.260 – 0.387** | 5.0 | **0.29** | 20% |
+| τ (trend) | 0.080 – 0.208 | 81.3 | 9e−17 | 95% |
+| ε (exploration) | **0.496 – 0.975** | 156 | 1e−32 | 97% |
+
+**φ is the only parameter that is homogeneous across schedules**: its spread is what
+the within-schedule SEs predict (p = 0.29). ε swings by a factor of two, and τ is
+*as heterogeneous as ε* once its smaller scale is set against its SEs (Q = 81 vs
+156, both p < 10⁻¹⁶). ε's drift is consistent with it absorbing schedule-specific
+*miscalibration* rather than measuring a schedule-specific exploration rate
+(finding #4, `fig3`); τ's drift shows the trend weight does not transfer either,
+so only φ should be read as a population estimate.
 
 ### 6. Run-length inertia: real structure, tested against non-parametric recalibration
 
@@ -129,13 +152,13 @@ Training** (highest train E[log p]); EDA is then used once, to score the selecte
 model. The table is regenerated by every run (`runlength_inertia.csv`). The values
 below are from the full 5-restart rerun with the corrected streak (2026-09-06):
 
-| threshold | φ_short | φ_long | train | EDA |
-|---|---|---|---|---|
-| ≥2 | 0.193 | 0.530 | −0.5801 | −0.5916 |
-| ≥3 (EDA-selected, for reference only) | 0.235 | 0.685 | −0.5786 | −0.5913 |
-| **≥4 (selected on Training)** | **0.259** | **0.831** | **−0.5781** | **−0.5915** |
-| ≥5 | 0.277 | 0.937 | −0.5782 | −0.5917 |
-| ≥6 | 0.289 | 1.000 | −0.5782 | −0.5917 |
+| threshold | φ_short | φ_long | train | EDA | EDA E[p] |
+|---|---|---|---|---|---|
+| ≥2 | 0.193 | 0.530 | −0.5801 | −0.5916 | 0.6017 |
+| ≥3 (EDA-selected, for reference only) | 0.235 | 0.685 | −0.5786 | −0.5913 | 0.6020 |
+| **≥4 (selected on Training)** | **0.259** | **0.831** | **−0.5781** | **−0.5915** | **0.6014** |
+| ≥5 | 0.277 | 0.937 | −0.5782 | −0.5917 | 0.6005 |
+| ≥6 | 0.289 | 1.000 | −0.5782 | −0.5917 | 0.5998 |
 
 Three notes on the selection. First, the Training objective is flat across ≥4–≥6
 (they differ in the 4th–5th decimal), so a rerun could select any of them; the
@@ -155,15 +178,15 @@ strengthens sharply with run length** (0.259 → 0.831 at ≥4, saturating at �
 Phase 2 predicted this from calibration analysis; Phase 3 confirms it by
 independent likelihood fitting.
 
-**Does it beat isotonic?** Isotonic is the best possible monotone transform of
-`p_alt1`, so it *cannot* represent a run-length-dependent effect; any reliable gain
-over it is structural information that recalibration cannot capture. The gain is
+**Does it beat isotonic?** Isotonic is a monotone transform of `p_alt1` (the best
+one Training can fit), so it *cannot* represent a run-length-dependent effect; any
+reliable gain over it is structural information that recalibration cannot capture. The gain is
 small (the two rows differ in the 3rd decimal), so it is tested with a **paired
 subject-level test on EDA** (per-subject mean log p; paired t and a subject-cluster
 bootstrap 95% CI, `metrics.paired_subject_test`), against both the
 isotonic-recalibrated published model and the 3-parameter re-fit (M2). Results are
 in `runlength_tests.csv` and the transcript; in the current transcript (Training-selected
-≥4, n = 496 EDA subjects): vs isotonic +0.0073 [+0.0039, +0.0108], p = 4e−5; vs M2
+≥4, n = 496 EDA subjects): vs isotonic +0.0073 [+0.0039, +0.0107], p = 4.5e−5; vs M2
 +0.0060 [+0.0038, +0.0084], p = 5e−7. The structural claim rests on the CI against
 isotonic excluding zero, not on the point difference.
 
@@ -203,12 +226,17 @@ other. But per finding #3, most of this repair is calibration.
 
 ## The model ladder
 
-| model | #par | E[log p] EDA | vs M0 |
-|---|---|---|---|
-| M0 published params | 0 | −0.7046 | — |
-| M1 + temperature (control) | 1 | −0.6235 | +0.081 |
-| M2 re-fitted (τ, ε, φ) | 3 | −0.5975 | +0.107 |
-| **M3 + run-length φ (threshold selected on Training; ≥4 in the current transcript)** | 5 (4 continuous + 1 selected threshold) | **−0.5915** | **+0.113** |
+| model | #par | E[log p] EDA | vs M0 | E[p] EDA | vs M0 |
+|---|---|---|---|---|---|
+| M0 published params | 0 | −0.7046 | — | 0.6153 | — |
+| M1 + temperature (control) | 1 | −0.6235 | +0.081 | 0.5735 | −0.042 |
+| M2 re-fitted (τ, ε, φ) | 3 | −0.5975 | +0.107 | 0.5953 | −0.020 |
+| **M3 + run-length φ (threshold selected on Training; ≥4 in the current transcript)** | 5 (4 continuous + 1 selected threshold) | **−0.5915** | **+0.113** | 0.6014 | −0.014 |
+
+Every rung loses E[p] relative to M0 (0.6153 on EDA). That is the algebra of
+calibration, not a defect of any rung: for p → 0.5 + α(p − 0.5), ΔE[p] =
+(α − 1)(E[p] − 0.5) < 0 whenever α < 1 and E[p] > 0.5, and every rung shrinks
+CATIE's over-confident forecasts toward 0.5.
 
 **Scale caveat.** The paper's CATIE-vs-QL gap of 0.109 is pooled over all 12
 schedules; the numbers above are EDA only (schedules 4/5/7). "+0.113 ≈ 104% of the
@@ -229,8 +257,8 @@ The paper's "remarkable" framing survives, but in a more precise form:
   predictions beyond [0.1, 0.9], ECE 0.174). In the model-comparison tables — and
   only there — CATIE was competing handicapped.
 - **The honest headline:** *CATIE's E[log p] deficit is predominantly a calibration
-  deficit, not a mechanism deficit.* Roughly 99% of what parameter re-fitting
-  achieves is reachable by a content-free monotone recalibration. The one genuinely
+  deficit, not a mechanism deficit.* 98.8% (95% CI 96.8–100.9%) of what parameter
+  re-fitting achieves is reachable by a content-free monotone recalibration. The one genuinely
   structural defect found is the **constant inertia assumption**, which run-length
   dependence corrects beyond anything recalibration can reach.
 
@@ -245,13 +273,15 @@ The paper's "remarkable" framing survives, but in a more precise form:
   9 non-Test schedules, with mixed-sign residuals. Subject counts match exactly
   (5/5, 3/3, 1/1). The tolerance is 0.0006, just above the rounding floor.
 - **Four optimisers**, including global differential evolution with no start point,
-  agree on the optimum to 4 dp (§1).
+  agree on the optimum to 4 dp (§1; `optimiser_agreement.csv`, regenerated by every
+  run, as is the §4 forecast-distribution table, `forecast_distribution.csv`).
 - **Identifiability:** Hessian eigenvalues, condition number, subject-clustered
   sandwich SEs (iid SEs alongside, delta method to the probability scale), sandwich
   correlation matrix, and a 28×28 profile surface. The sandwich SEs were cross-checked
   against a 200-resample subject bootstrap of the MLE.
 - **Held-out validation:** every headline gain is reported on EDA, which is not used
-  for fitting. The run-length threshold is selected on Training; EDA is used once,
+  for fitting. All recalibration maps are fitted on Training with trial 1 excluded.
+  The run-length threshold is selected on Training; EDA is used once,
   to score the selected model. The run-length-vs-isotonic comparison is a paired
   subject-level test on EDA (`runlength_tests.csv`), not a single-number difference.
 - **The k-mixture weights are recomputed inside every likelihood evaluation**, since
@@ -270,8 +300,8 @@ The paper's "remarkable" framing survives, but in a more precise form:
 | `figures/validation_output{,_eda,_schedule_0}.txt`, `paper_validation_*.csv`, `fig_validation_{Ep,Elogp}*` | Validation transcripts, tables and figures |
 | `fig1_profile_likelihood` | (ε, φ) profile surface, published vs fitted |
 | `fig2_model_ladder` | Gains of each ladder rung vs the paper's QL gap |
-| `fig3_per_schedule_fits` | φ stable, ε unstable — the calibration-knob signature |
-| `k_enumeration.csv`, `recalibration_control.csv`, `runlength_inertia.csv`, `runlength_tests.csv`, `per_schedule_fits.csv`, `model_ladder.csv`, `profile_surface.npz` | Backing tables |
+| `fig3_per_schedule_fits` | Per-schedule τ/ε/φ with 95% CIs from the clustered sandwich SEs — φ's spread fits inside its error bars, τ's and ε's do not |
+| `k_enumeration.csv`, `optimiser_agreement.csv`, `recalibration_control.csv`, `isotonic_vs_refit.csv`, `forecast_distribution.csv`, `runlength_inertia.csv`, `runlength_tests.csv`, `per_schedule_fits.csv`, `per_schedule_heterogeneity.csv`, `model_ladder.csv`, `profile_surface.npz` | Backing tables (every table in this README is regenerated by `fit_parameters.py`) |
 
 ## How to run
 
@@ -281,8 +311,10 @@ python my_code/catie_calibration/03_parameter_fitting/fit_parameters.py
 python my_code/catie_calibration/03_parameter_fitting/validate_against_paper.py [training|eda|schedule_0]
 ```
 
-The profile surface (784 nested optimisations) dominates runtime — expect ~15–20 min
-total. It prints nothing while computing; that is expected, not a hang.
+The profile surface (784 nested optimisations) dominates runtime, followed by the
+run-length and per-schedule fits and the §2b global search — expect ~40 min on an
+idle machine (the 2026-09-06 run took 1h50 while sharing the CPU with other work).
+The surface prints nothing while computing; that is expected, not a hang.
 
 ## Implications for Phase 4
 
