@@ -146,8 +146,9 @@ def p_choice_matrix(cache: StateCache, tau=TAU, eps=EPSILON, phi=PHI,
     """P(the choice actually made), (n_subjects, n_trials).
 
     ks=None uses the cache's k set as a heterogeneous mixture; a single int uses
-    that k alone (the paper's Methods state K = 2, while the shipped likelihood code
-    mixes K in {0,1,2} -- both are supported so the discrepancy can be measured).
+    that k alone, which isolates one k-agent for sensitivity analysis. The paper's
+    model is the {0,1,2} mixture: its "K = 2" is the upper bound of a uniform draw
+    (CATIE_single_schedule_score.m:5, k = randi([0,2]); hetro.m:6, K = 0:2).
     weighting : "per_trial" (default, the paper's) or "shipped_time_avg" (the code
                 as shipped) -- see module docstring.
     """
@@ -219,3 +220,39 @@ def negloglik_factory(cache: StateCache, ks=None, free=("tau", "eps", "phi"),
 
 def unpack(z, order):
     return {nm: float(_sigmoid(zi)) for nm, zi in zip(order, np.atleast_1d(z))}
+
+
+# ── per-subject scores, for subject-clustered (sandwich) standard errors ─────
+def subject_nll(cache: StateCache, drop_first=True, **kw) -> np.ndarray:
+    """Each subject's SUMMED -log p over their scored trials, shape (n_subjects,)."""
+    pc = p_choice_matrix(cache, **kw)
+    if drop_first:
+        pc = pc[:, 1:]
+    return -np.log(np.clip(pc, EPS_CLIP, 1.0)).sum(axis=1)
+
+
+def subject_scores(cache: StateCache, z, order, ks=None, fixed=None, h=1e-4,
+                   **extra) -> np.ndarray:
+    """Gradient w.r.t. z (logit space) of every subject's summed nll: (n_subjects, len(z)).
+
+    Central finite differences on the per-subject nll vector; the objective is smooth
+    so h = 1e-4 in logit space is ample. Same (order, fixed, ks, extra) convention as
+    `negloglik_factory`, so scores line up with that objective's z. Summing the rows
+    gives the gradient of the SUMMED nll, which is ~0 at the MLE; the outer-product
+    sum  M = S^T S  is the "meat" of the subject-clustered sandwich covariance.
+    """
+    fixed = dict(fixed or {})
+    z = np.atleast_1d(np.asarray(z, dtype=float))
+
+    def nll_vec(zz):
+        vals = dict(fixed)
+        for nm, zi in zip(order, zz):
+            vals[nm] = float(_sigmoid(zi))
+        return subject_nll(cache, ks=ks, **vals, **extra)
+
+    S = np.empty((cache.n_subjects, len(z)))
+    for j in range(len(z)):
+        e = np.zeros_like(z)
+        e[j] = h
+        S[:, j] = (nll_vec(z + e) - nll_vec(z - e)) / (2.0 * h)
+    return S

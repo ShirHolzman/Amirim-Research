@@ -19,8 +19,10 @@ either outcome is informative:
   * small gain  -> the parameters genuinely transfer across tasks and populations,
                    which strengthens the paper's point rather than weakening it
 
-Note a discrepancy worth measuring: the Methods state K = 2, but the shipped
-likelihood code mixes K in {0,1,2}. Both are evaluated below.
+On K: the paper's "K = 2" is the upper bound of a uniform draw over {0,1,2} (the
+competition simulator, CATIE_single_schedule_score.m:5, draws k = randi([0,2]); the
+likelihood code, hetro.m:6, uses K = 0:2), so the {0,1,2} mixture is the paper's
+model. Single-k agents are evaluated below as a sensitivity check.
 
 THE CONTROL, which is what makes this science rather than curve-fitting. Any
 3-parameter re-fit will improve the likelihood somewhat. The question is whether it
@@ -64,7 +66,7 @@ from catie_core import EPSILON, PHI, TAU  # noqa: E402
 import metrics as M  # noqa: E402
 from catie_likelihood import (  # noqa: E402
     StateCache, mean_log_p, mean_p, negloglik_factory, p_choice_matrix,
-    p_alt1_single_k, mix_per_trial, unpack, _logit, _sigmoid,
+    p_alt1_single_k, mix_per_trial, unpack, _logit, _sigmoid, subject_scores,
 )
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -112,11 +114,22 @@ def numeric_hessian(f, z, h=1e-4):
 
 
 def build_streak(cache):
-    """Run length of identical choices ending at t-1, from the cached c_prev."""
+    """Run length of identical choices ending at t-1, from the cached c_prev.
+
+    Convention (matches Phase 2's `_streak_transform`): streak[:, t] is the number
+    of consecutive identical choices the subject has made up to and including
+    trial t-1. Column 0 is unused (trial 1 has no history). Column 1 is always 1
+    (only one prior choice exists at trial 2). For t >= 2,
+        streak[:, t] = streak[:, t-1] + 1  if c_prev[:, t] == c_prev[:, t-1]  else 1.
+
+    The loop must start at t=2: c_prev[:, 0] is a placeholder 0, not a choice, and
+    comparing c_prev[:, 1] against it credited subjects whose first choice was
+    alternative 2 (coded 0) with a run of 2 at trial 2 instead of 1.
+    """
     cp = cache.st[cache.ks[0]]["c_prev"]
     n_s, n_t = cp.shape
     streak = np.ones((n_s, n_t))
-    for t in range(1, n_t):
+    for t in range(2, n_t):
         same = cp[:, t] == cp[:, t - 1]
         streak[:, t] = np.where(same, streak[:, t - 1] + 1, 1.0)
     return streak
@@ -174,12 +187,12 @@ def main():
     print("\n" + "=" * 78)
     print("1. K ENUMERATION at published (tau, eps, phi)")
     print("=" * 78)
-    print("   The paper's Methods state K=2; the shipped code mixes K in {0,1,2}.")
-    print("   Measuring both, plus single K=0,1,3, on Training.\n")
+    print("   The paper's model is the {0,1,2} mixture (K=2 = upper bound of a uniform draw).")
+    print("   Sensitivity check: single-k agents K=0,1,2,3 and the wider {0,1,2,3} mixture.\n")
     print(f"   {'K':<16}{'E[log p] train':>16}{'E[log p] EDA':>15}")
     krows = []
-    for label, ks in [("K=0", 0), ("K=1", 1), ("K=2 (paper)", 2), ("K=3", 3),
-                      ("mix {0,1,2} (code)", (0, 1, 2)), ("mix {0,1,2,3}", (0, 1, 2, 3))]:
+    for label, ks in [("K=0", 0), ("K=1", 1), ("K=2", 2), ("K=3", 3),
+                      ("mix {0,1,2} (paper)", (0, 1, 2)), ("mix {0,1,2,3}", (0, 1, 2, 3))]:
         c_tr = StateCache("training", ks=(0, 1, 2, 3)) if ks == (0, 1, 2, 3) else tr
         c_ed = StateCache("eda", ks=(0, 1, 2, 3)) if ks == (0, 1, 2, 3) else ed
         if isinstance(ks, int) and ks == 3:
@@ -225,16 +238,34 @@ def main():
     print(f"   Hessian eigenvalues (logit space): "
           f"{', '.join(f'{v:.3e}' for v in evals)}")
     print(f"   condition number = {cond:.1f}")
-    n_eff = tr.n_subjects
-    cov = np.linalg.inv(Hm) / n_eff
+    # Hm is the Hessian of the MEAN per-trial nll over N = n_subjects x 99 scored
+    # cells, so the iid MLE covariance is inv(Hm) / N. Trials within a subject are
+    # correlated, so the SEs reported are the subject-clustered sandwich
+    #     V = B^-1 M B^-1,  B = N * Hm (Hessian of the SUMMED nll),  M = sum_i s_i s_i^T,
+    # s_i = gradient of subject i's summed nll (subject_scores), with the small-sample
+    # factor G/(G-1), G = n_subjects. (An earlier version divided inv(Hm) by
+    # n_subjects instead of N, which inflated the SEs by ~sqrt(99).)
+    n_cells = tr.n_subjects * (tr.n_trials - 1)
+    G = tr.n_subjects
+    cov_iid = np.linalg.inv(Hm) / n_cells
+    S = subject_scores(tr, z_hat, order, ks=(0, 1, 2))
+    score_tot = S.sum(axis=0)
+    print(f"   total score / N_trials (should be ~0 at the MLE): "
+          f"max |.| = {np.abs(score_tot).max() / n_cells:.2e}")
+    B_inv = np.linalg.inv(n_cells * Hm)
+    cov = B_inv @ (S.T @ S) @ B_inv * (G / (G - 1))
+    se_iid = np.sqrt(np.clip(np.diag(cov_iid), 0, None))
     se = np.sqrt(np.clip(np.diag(cov), 0, None))
-    print(f"\n   approximate subject-clustered SEs (delta method, logit -> prob):")
+    print(f"\n   SEs (delta method, logit -> prob); N_trials = {n_cells:,}, "
+          f"G = {G:,} subjects, G/(G-1) applied to the sandwich:")
+    print(f"      {'param':<8}{'fitted':>8}{'iid':>10}{'sandwich':>10}")
     for i, nm in enumerate(order):
         p_ = best[nm]
-        se_p = se[i] * p_ * (1 - p_)
-        print(f"      {nm:<6}{p_:.4f}  +/- {se_p:.4f}")
+        d_ = p_ * (1 - p_)
+        print(f"      {nm:<8}{p_:>8.4f}{se_iid[i] * d_:>10.4f}{se[i] * d_:>10.4f}")
     corr = cov / np.outer(np.sqrt(np.diag(cov)), np.sqrt(np.diag(cov)))
-    print(f"\n   parameter correlation matrix ({', '.join(order)}):")
+    print(f"\n   parameter correlation matrix, subject-clustered sandwich "
+          f"({', '.join(order)}):")
     for i, nm in enumerate(order):
         print(f"      {nm:<6}" + "  ".join(f"{corr[i,j]:+.3f}" for j in range(len(order))))
     ridge = abs(corr[order.index("eps"), order.index("phi")])
@@ -352,7 +383,6 @@ def main():
     print(f"   {'threshold':<12}{'phi_short':>11}{'phi_long':>10}{'tau':>8}{'eps':>8}"
           f"{'train':>10}{'EDA':>10}")
     rl_rows = []
-    best_rl = None
     for thr in (2, 3, 4, 5, 6):
         b_rl, nll_rl, _ = fit(tr, ks=(0, 1, 2),
                               free=("tau", "eps", "phi", "phi_long"),
@@ -362,18 +392,70 @@ def main():
         print(f"   >= {thr:<9}{b_rl['phi']:>11.4f}{b_rl['phi_long']:>10.4f}"
               f"{b_rl['tau']:>8.4f}{b_rl['eps']:>8.4f}{lt:>10.4f}{le:>10.4f}")
         rl_rows.append({"threshold": thr, **b_rl, "train": lt, "eda": le})
-        if best_rl is None or le > best_rl[1]:
-            best_rl = (thr, le, b_rl)
     pd.DataFrame(rl_rows).to_csv(OUT_DIR / "runlength_inertia.csv", index=False)
-    thr_b, le_b, par_b = best_rl
-    print(f"\n   best on EDA: threshold >= {thr_b}, phi_short={par_b['phi']:.4f}, "
-          f"phi_long={par_b['phi_long']:.4f}")
+    # The threshold is a discrete hyper-parameter and is SELECTED ON TRAINING (highest
+    # train E[log p] = lowest fitted nll). EDA is then used once, to score the
+    # selected model. Selecting on EDA and reporting that EDA score would make the
+    # "held-out" number an in-sample maximum over five candidates.
+    best_rl = max(rl_rows, key=lambda r: r["train"])
+    thr_b = int(best_rl["threshold"])
+    par_b = {nm: best_rl[nm] for nm in ("tau", "eps", "phi", "phi_long")}
+    le_b = best_rl["eda"]
+    eda_pick = max(rl_rows, key=lambda r: r["eda"])
+    rl_optimism = eda_pick["eda"] - le_b        # >= 0 by construction
+    print(f"\n   selected on Training: threshold >= {thr_b}, phi_short={par_b['phi']:.4f}, "
+          f"phi_long={par_b['phi_long']:.4f} (train E[log p] {best_rl['train']:.6f})")
+    print(f"   for reference (EDA-selected, NOT held-out): threshold >= "
+          f"{int(eda_pick['threshold'])}, EDA {eda_pick['eda']:.4f}")
+    print(f"   optimism = EDA(EDA-selected) - EDA(train-selected) = {rl_optimism:+.4f}")
+    if par_b["phi_long"] > 0.999:
+        print(f"   boundary solution: phi_long saturates at 1 -- deterministic repetition "
+              f"after >={thr_b} identical choices, softened only by the eps floor")
     print(f"   EDA E[log p]: published {base_ed:.4f} -> re-fit {fit_ed:.4f} -> "
           f"run-length {le_b:.4f}")
-    lr_stat = 2 * tr.n_subjects * 99 * (mean_log_p(tr, ks=(0,1,2), streak=streak_tr,
-                                                   streak_thresh=thr_b, **par_b) - fit_tr)
-    print(f"   likelihood-ratio vs 3-par re-fit: chi2(1) = {lr_stat:.1f} "
-          f"(p < 1e-10 for anything above ~45)")
+
+    # Paired subject-level tests on EDA: is the Training-selected run-length model
+    # better than (a) the isotonic-recalibrated published model of section 4 (the
+    # best possible monotone transform of p_alt1) and (b) the 3-par re-fit M2?
+    # Per-subject mean log p, paired t-test + cluster bootstrap (metrics.py).
+    def _trial_logp(pc):
+        return np.log(np.clip(pc[:, 1:], 1e-12, 1.0)).ravel()
+    sid_ed = np.repeat(ed.subject_id, ed.n_trials - 1)
+    lp_rl = _trial_logp(p_choice_matrix(ed, ks=(0, 1, 2), streak=streak_ed,
+                                        streak_thresh=thr_b, **par_b))
+    lp_iso = _trial_logp(np.where(y_ed.astype(bool), p_iso_ed, 1 - p_iso_ed))
+    lp_m2 = _trial_logp(p_choice_matrix(ed, ks=(0, 1, 2), **best))
+    print(f"\n   paired subject-level tests on EDA (per-subject mean log p, "
+          f"n = {ed.n_subjects} subjects; cluster bootstrap 95% CI, paired t):")
+    rl_tests = []
+    for nm, key, lp_o in [("isotonic recal. (sec. 4)", "isotonic", lp_iso),
+                          ("M2 re-fit (tau,eps,phi)", "m2_refit", lp_m2)]:
+        t_ = M.paired_subject_test(lp_rl, lp_o, sid_ed)
+        print(f"   run-length (>={thr_b}) - {nm:<26} {t_['mean_diff']:+.4f} "
+              f"[{t_['ci_lo']:+.4f}, {t_['ci_hi']:+.4f}]  t = {t_['t']:.2f}  "
+              f"p = {t_['p']:.2g} {M.stars(t_['p'])}")
+        rl_tests.append({"comparison": f"runlength_ge{thr_b}_minus_{key}", **t_})
+
+    # Nested-model comparison on TRAINING (in-sample): run-length model M3 vs the
+    # 3-par re-fit M2 it nests. A classical LR chi2 would treat every trial as an
+    # independent observation, but trials within a subject are strongly dependent
+    # (perseveration), and the threshold was chosen among five candidates, so the
+    # chi2(1) calibration is invalid. Same subject-clustered paired test instead.
+    sid_tr = np.repeat(tr.subject_id, tr.n_trials - 1)
+    lp_rl_tr = _trial_logp(p_choice_matrix(tr, ks=(0, 1, 2), streak=streak_tr,
+                                           streak_thresh=thr_b, **par_b))
+    lp_m2_tr = _trial_logp(p_choice_matrix(tr, ks=(0, 1, 2), **best))
+    t_tr = M.paired_subject_test(lp_rl_tr, lp_m2_tr, sid_tr)
+    print(f"\n   in-sample nested comparison on TRAINING (per-subject mean log p, "
+          f"n = {tr.n_subjects} subjects; cluster bootstrap 95% CI, paired t):")
+    print(f"   run-length (>={thr_b}) - M2 re-fit (tau,eps,phi)     {t_tr['mean_diff']:+.4f} "
+          f"[{t_tr['ci_lo']:+.4f}, {t_tr['ci_hi']:+.4f}]  t = {t_tr['t']:.2f}  "
+          f"p = {t_tr['p']:.2g} {M.stars(t_tr['p'])}")
+    print("   in-sample nested comparison on Training, subject-clustered; the held-out "
+          "comparisons are the EDA rows above / runlength_tests.csv")
+    rl_tests.append({"comparison": f"runlength_ge{thr_b}_minus_m2_refit_TRAIN_insample",
+                     **t_tr})
+    pd.DataFrame(rl_tests).to_csv(OUT_DIR / "runlength_tests.csv", index=False)
 
     # ── 5b. Does the fit actually REPAIR Phase 2's calibration split? ────────
     print("\n" + "=" * 78)
@@ -425,7 +507,7 @@ def main():
         ("M0 published params", 0, base_ed),
         ("M1 + temperature (control)", 1, rows[1][2]),
         ("M2 re-fitted (tau,eps,phi)", 3, fit_ed),
-        (f"M3 + run-length phi (>={thr_b})", 4, le_b),
+        (f"M3 + run-length phi (>={thr_b})", 5, le_b),   # 4 continuous + 1 selected threshold
     ]
     print(f"   {'model':<32}{'#par':>5}{'E[log p] EDA':>14}{'vs M0':>9}")
     for nm, npar, lp in ladder:
