@@ -46,7 +46,7 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
 
    split            published      fitted      gain
    training           -0.6731     -0.5867   +0.0864
-   EDA (select)       -0.7046     -0.5975   +0.1071
+   EDA (held out)     -0.7046     -0.5975   +0.1071
    schedule_0 (OOD)     -0.5818     -0.5076   +0.0742
 
    E[p]: published 0.6153 -> fitted 0.5953 on EDA
@@ -69,11 +69,17 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
    condition number = 8.3
    total score / N_trials (should be ~0 at the MLE): max |.| = 8.15e-10
 
-   SEs (delta method, logit -> prob); N_trials = 146,817, G = 1,483 subjects, G/(G-1) applied to the sandwich:
-      param     fitted       iid  sandwich
-      tau       0.1150    0.0048    0.0067
-      eps       0.7024    0.0055    0.0159
-      phi       0.3387    0.0037    0.0101
+   SEs (delta method, logit -> prob); N_trials = 146,817, G = 1,483 subjects / 5 schedules, G/(G-1) applied to each sandwich:
+      param     fitted       iid  subj-clust  sched-clust
+      tau       0.1150    0.0048      0.0067       0.0355
+      eps       0.7024    0.0055      0.0159       0.1120
+      phi       0.3387    0.0037      0.0101       0.0104
+      subj-clust  = uncertainty for a new PARTICIPANT from these five
+                    schedules. This is the headline SE.
+      sched-clust = uncertainty for a new SCHEDULE, the five schedules
+                    being the sampling unit. tau and eps are far less
+                    certain there; phi is barely affected -- the same
+                    message as section 6's heterogeneity test.
 
    parameter correlation matrix, subject-clustered sandwich (tau, eps, phi):
       tau   +1.000  +0.426  -0.213
@@ -81,6 +87,19 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
       phi   -0.213  -0.417  +1.000
 
    |corr(eps, phi)| = 0.417 -> no strong ridge
+
+   3b. SUBJECT BOOTSTRAP OF THE MLE -- 120 resamples of the 1,483 Training
+       subjects with replacement, (tau, eps, phi) refitted on each, L-BFGS-B
+       warm-started at the full-sample optimum (the resampled surfaces have the
+       same shape, so a multi-start search would only cost time). Running ...
+       120/120 resamples converged (0 discarded) in 204 s
+
+      param     fitted  sandwich  bootstrap SD   ratio
+      tau       0.1150    0.0067        0.0065    0.98
+      eps       0.7024    0.0159        0.0144    0.90
+      phi       0.3387    0.0101        0.0095    0.94
+      Probability scale. The bootstrap SD needs no delta method; the
+      sandwich column does. bootstrap_se.csv carries both scales.
 
    computing (eps, phi) profile likelihood surface ...
    surface max = -0.5868 at eps=0.717, phi=0.350
@@ -98,8 +117,14 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
    + Platt (2 par)                       2    -0.6193   0.0710  +0.0853   0.5778
    + isotonic (nonpar)                  np    -0.5988   0.0225  +0.1058   0.5937
    re-fitted (tau,eps,phi)               3    -0.5975   0.0293  +0.1071   0.5953
-   Every recalibrated row loses E[p] relative to the published model: for a
-   shrinkage p -> 0.5 + a(p - 0.5), dE[p] = (a - 1)(E[p] - 0.5) < 0 when E[p] > 0.5.
+   Every recalibrated row loses E[p] relative to the published model. The
+   algebra behind that: for a LINEAR shrinkage p -> 0.5 + a(p - 0.5),
+   dE[p] = (a - 1)(E[p] - 0.5), which is < 0 whenever a < 1 and E[p] > 0.5.
+   That identity is exact only for a linear shrinkage of p. None of the rows
+   above is one: temperature is linear in the LOGIT, isotonic is an arbitrary
+   monotone map, and the re-fit is a different model rather than a transform
+   of this one. So the algebra is the mechanism these numbers are CONSISTENT
+   WITH, not a derivation of them -- the losses themselves are measured.
 
    1-par temperature  +0.0811  = 76% of the re-fit gain
    nonpar isotonic    +0.1058  = 99% of the re-fit gain
@@ -158,6 +183,13 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
    run-length (>=4) - isotonic recal. (sec. 4)   +0.0073 [+0.0039, +0.0107]  t = 4.12  p = 4.5e-05 ***
    run-length (>=4) - M2 re-fit (tau,eps,phi)    +0.0060 [+0.0038, +0.0084]  t = 5.08  p = 5.3e-07 ***
 
+   per-EDA-schedule breakdown (same test, subjects clustered within each schedule;
+   the pooled rows above are these three schedules together):
+   schedule        n   vs isotonic recal. (sec. 4)               vs M2 re-fit (tau,eps,phi)                
+   schedule_4    201   +0.0074 [+0.0026, +0.0126] p=0.0044 **    +0.0063 [+0.0030, +0.0098] p=0.00032 ***  
+   schedule_5    176   -0.0001 [-0.0050, +0.0052] p=0.96 n.s.    +0.0014 [-0.0011, +0.0041] p=0.29 n.s.    
+   schedule_7    119   +0.0180 [+0.0098, +0.0268] p=7.1e-05 ***  +0.0124 [+0.0062, +0.0195] p=0.00039 ***  
+
    in-sample nested comparison on TRAINING (per-subject mean log p, n = 1483 subjects; cluster bootstrap 95% CI, paired t):
    run-length (>=4) - M2 re-fit (tau,eps,phi)     +0.0087 [+0.0072, +0.0102]  t = 11.47  p = 3e-29 ***
    in-sample nested comparison on Training, subject-clustered; the held-out comparisons are the EDA rows above / runlength_tests.csv
@@ -185,24 +217,45 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
 6. PER-SCHEDULE FITS -- do the parameters transfer, or drift?
 ==============================================================================
    SEs are subject-clustered sandwich SEs on each schedule alone (sec. 3's
-   machinery, delta method to the probability scale).
+   machinery). The fit lives in LOGIT space, so se_z is the SE the sandwich
+   actually produces; se_* below is its delta-method image on the
+   probability scale, se_z * p * (1 - p). Both go into per_schedule_fits.csv,
+   and the heterogeneity test below uses se_z -- see the note there.
 
-   schedule           n      tau      eps      phi  E[logp] fit   se_tau   se_eps   se_phi
-   schedule_2       538   0.2083   0.8089   0.3265      -0.6087   0.0122   0.0247   0.0177
-   schedule_3       607   0.0800   0.4957   0.3317      -0.5231   0.0079   0.0190   0.0139
-   schedule_6       144   0.1077   0.8510   0.2595      -0.6279   0.0202   0.0636   0.0398
-   schedule_9       107   0.1336   0.9751   0.3794      -0.6570   0.0266   0.0720   0.0491
-   schedule_11       87   0.1771   0.9719   0.3866      -0.6581   0.0336   0.0756   0.0628
+   schedule        n     tau     eps     phi   E[logp]  se_tau  se_eps  se_phi  se_z_tau  se_z_eps  se_z_phi
+   schedule_2    538  0.2083  0.8089  0.3265   -0.6087  0.0122  0.0247  0.0177    0.0740    0.1598    0.0804
+   schedule_3    607  0.0800  0.4957  0.3317   -0.5231  0.0079  0.0190  0.0139    0.1075    0.0758    0.0625
+   schedule_6    144  0.1077  0.8510  0.2595   -0.6279  0.0202  0.0636  0.0398    0.2102    0.5015    0.2070
+   schedule_9    107  0.1336  0.9751  0.3794   -0.6570  0.0266  0.0720  0.0491    0.2297    2.9718    0.2085
+   schedule_11    87  0.1771  0.9719  0.3866   -0.6581  0.0336  0.0756  0.0628    0.2309    2.7706    0.2650
 
    spread across schedules: tau 0.080-0.208, eps 0.496-0.975, phi 0.260-0.387
 
-   Cochran Q heterogeneity test across schedules (inverse-variance weights
-   from the sandwich SEs, probability scale):
+   WARNING -- PARAMETER NOT IDENTIFIED on the schedule(s) below.
+   Its logit-scale sandwich SE exceeds 1, i.e. the likelihood is flat in
+   that parameter on that schedule: the point estimate is arbitrary
+   within a wide plateau, and its delta-method probability-scale SE is
+   not a meaningful precision.
+      schedule_9   eps  = 0.9751, se(logit) = 2.97  ->  95% CI on the probability scale [0.1039, 0.9999]
+      schedule_11  eps  = 0.9719, se(logit) = 2.77  ->  95% CI on the probability scale [0.1317, 0.9999]
+   These cells must NOT be given inverse-variance weight on the
+   probability scale, where the delta method shrinks their huge logit
+   SE into a small-looking number. The Q test below works in logit
+   space precisely so that a flat parameter gets almost no weight.
+
+   Cochran Q heterogeneity test across schedules, on the LOGIT scale
+   (inverse-variance weights 1/se_z^2 from the sandwich SEs; the weighted
+   mean is shown back-transformed through the sigmoid):
    param           Q  df         p    I^2  weighted mean
-   tau         81.27   4   9.4e-17    95%         0.1198
-   eps        156.15   4   9.8e-33    97%         0.6500
-   phi          5.00   4      0.29    20%         0.3287
-   -> phi is homogeneous across schedules (p = 0.29); tau (p = 9e-17) and eps (p = 1e-32) are both heterogeneous.
+   tau         76.65   4   8.9e-16    95%         0.1516
+   eps         79.51   4   2.2e-16    95%         0.5701
+   phi          4.70   4      0.32    15%         0.3300
+   -> phi is homogeneous across schedules (Q = 4.7, p = 0.32), so it is
+      the one parameter whose between-schedule spread is no more than its
+      own within-schedule SEs predict. tau (Q = 76.7, p = 9e-16) and eps (Q = 79.5, p = 2e-16)
+      are both strongly heterogeneous, and on this scale roughly equally so --
+      the probability-scale version of this test made eps look far worse than tau
+      only because of the plateau cells flagged above.
 
 ==============================================================================
 7. MODEL LADDER (all scored on EDA, fitted on Training)
@@ -212,8 +265,12 @@ training 1,483 subj | EDA 496 | schedule_0 549 | Test NOT cached
    M1 + temperature (control)          1       -0.6235  +0.0811    0.5735  -0.0418
    M2 re-fitted (tau,eps,phi)          3       -0.5975  +0.1071    0.5953  -0.0200
    M3 + run-length phi (>=4)           5       -0.5915  +0.1131    0.6014  -0.0139
-   Every rung loses E[p] relative to M0: any shrinkage p -> 0.5 + a(p - 0.5)
-   changes E[p] by (a - 1)(E[p] - 0.5), negative whenever a < 1 and E[p] > 0.5.
+   Every rung loses E[p] relative to M0. The algebra of a LINEAR shrinkage
+   p -> 0.5 + a(p - 0.5) is dE[p] = (a - 1)(E[p] - 0.5), negative whenever
+   a < 1 and E[p] > 0.5, and that identity is exact for a linear shrinkage
+   only. M1 is linear in the logit; M2 and M3 are different models, not
+   transforms of M0. Every rung is nonetheless a net squash toward 0.5, so
+   the pattern is CONSISTENT WITH that algebra rather than implied by it.
 
    For scale, the paper's CATIE-vs-best-QL gap is -0.109.
    Total gain here (M0 -> M3): +0.1131 = 104% of that gap.

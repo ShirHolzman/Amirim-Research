@@ -74,7 +74,7 @@ Dependencies: `pandas numpy scipy matplotlib scikit-learn` (all present in the r
 ## Data splits
 
 Schedule-level splits, so held-out evaluation tests generalisation to **unseen reward
-schedules** rather than unseen participants. Fit on training, select on EDA, report once
+schedules** rather than unseen participants. Fit on training, score once on EDA, report once
 on test.
 
 | Split | Subjects | Schedules |

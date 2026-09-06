@@ -22,8 +22,10 @@ therefore tests a highlighted claim, and either outcome is informative: a large 
 means CATIE competed handicapped; a small gain means the parameters genuinely
 transfer, which *strengthens* the paper's point.
 
-**Protocol.** Fit on Training (1,483 subj, schedules 2/3/6/9/11), select on EDA (496,
-schedules 4/5/7), schedule_0 (549) as out-of-distribution check. All numbers use the
+**Protocol.** Fit on Training (1,483 subj, schedules 2/3/6/9/11), score once on EDA
+(496, schedules 4/5/7) with no selection on EDA, schedule_0 (549) as
+out-of-distribution check. The only discrete choice made anywhere in Phase 3 -- the
+run-length threshold of §6 -- is made on Training. All numbers use the
 **per-trial** k-mixture weighting (the paper's; project default since 2026-09 -- see
 the Phase 1 README's resolved-discrepancy note). The rerun moved every value at the
 2nd–3rd decimal; no conclusion changed. **Test (1/8/10) is
@@ -45,7 +47,7 @@ structurally impossible.
 | split | published | fitted | gain |
 |---|---|---|---|
 | training | −0.6731 | −0.5867 | +0.086 |
-| EDA (select) | −0.7046 | −0.5975 | **+0.107** |
+| EDA (held out) | −0.7046 | −0.5975 | **+0.107** |
 | schedule_0 (OOD) | −0.5818 | −0.5076 | +0.074 |
 
 **Verified against four independent optimisers**, including a *global* one with no
@@ -75,6 +77,22 @@ of this section divided the inverse Hessian of the *mean* per-trial nll by n_sub
 instead of N_trials, inflating the SEs ~√99 to ±0.048/0.054/0.037, and quoted the
 Hessian-implied correlations of < 0.11; the clustered sandwich replaces both.)
 
+**What those SEs are conditional on.** They cluster by *subject*, so they answer
+“how precisely is this parameter pinned down for another **participant** drawn from
+these five Training schedules?” They do not answer “… for another **schedule**” —
+there the five schedules are themselves the sampling unit, and §5 shows the
+parameters drift a long way between them. The same sandwich clustered by schedule
+(G = 5) gives τ ±0.036, ε ±0.112, φ ±0.010; every run prints it as the
+`sched-clust` column beside the subject-clustered one. **τ and ε are 5–7× less
+certain for a new schedule; φ is not (1.03×).** A DerSimonian–Laird random-effects
+summary of the five per-schedule fits says the same thing: τ 0.140 ± 0.032,
+ε 0.814 ± 0.105, φ 0.328 ± 0.013 (computed from the committed
+`per_schedule_fits.csv`; its ε line uses probability-scale inverse-variance
+weights, which §5 explains are unreliable for ε, so ±0.105 is the softest of the
+three). Five clusters is few, so read the schedule-clustered figures as magnitudes
+rather than intervals — but the ordering is unambiguous and it is the reason τ and
+ε must not be carried to a new schedule.
+
 ### 3. THE CONTROL — re-fitting is *calibration*, not better psychology
 
 This is the chapter's central result.
@@ -89,9 +107,13 @@ This is the chapter's central result.
 
 All three maps are fitted on Training with trial 1 (p = 0.5 by construction, never
 scored) excluded; they are applied to every trial and scored with trial 1 dropped.
-Every recalibrated row *loses* E[p] relative to the published model (0.6153): for a
-shrinkage p → 0.5 + α(p − 0.5), ΔE[p] = (α − 1)(E[p] − 0.5), which is negative
-whenever α < 1 and E[p] > 0.5.
+Every recalibrated row *loses* E[p] relative to the published model (0.6153). The
+algebra usually quoted for this is exact only for a **linear** shrinkage of p: for
+p → 0.5 + α(p − 0.5), ΔE[p] = (α − 1)(E[p] − 0.5), negative whenever α < 1 and
+E[p] > 0.5. None of the rows above is a linear shrinkage — temperature is linear in
+the *logit*, isotonic is an arbitrary monotone map, and the re-fit is a different
+model rather than a transform of this one — so the losses are **consistent with**
+that mechanism rather than derived from it. They are measured, not predicted.
 
 **The isotonic row is the decisive comparison, not temperature.** Isotonic is the
 best monotone recalibration of `p_alt1` *that Training can fit* — it has zero
@@ -127,18 +149,39 @@ the probability floor — which is now demonstrated rather than speculated.)*
 Each Training schedule is fitted alone (`per_schedule_fits.csv`, with
 subject-clustered sandwich SEs per schedule), and the between-schedule spread is
 tested against those SEs with a Cochran Q heterogeneity test (inverse-variance
-weights, df = 4; `per_schedule_heterogeneity.csv`):
+weights, df = 4; `per_schedule_heterogeneity.csv`). **Q is computed on the logit
+scale**, for the reason boxed below:
 
 | | range across 5 schedules | Q | p | I² |
 |---|---|---|---|---|
-| φ (inertia) | **0.260 – 0.387** | 5.0 | **0.29** | 20% |
-| τ (trend) | 0.080 – 0.208 | 81.3 | 9e−17 | 95% |
-| ε (exploration) | **0.496 – 0.975** | 156 | 1e−32 | 97% |
+| φ (inertia) | **0.260 – 0.387** | 4.70 | **0.32** | 15% |
+| τ (trend) | 0.080 – 0.208 | 76.65 | 9e−16 | 95% |
+| ε (exploration) | **0.496 – 0.975** | 79.51 | 2e−16 | 95% |
+
+> **Why the logit scale, and what it fixes.** The model is parameterised in logit
+> space and the sandwich covariance is computed there; the probability-scale SE is a
+> delta-method image, se_p = se_z · p(1−p). That linearisation is valid only where
+> the likelihood is locally quadratic, and for ε on **schedules 9 and 11** it is not:
+> ε sits on a flat plateau at ≈ 0.975 with a **logit-scale SE of ≈ 3**, i.e. it is
+> essentially unidentified there. The delta method turns that into se_p ≈ 0.072 — a
+> deceptively *small* number — which on the probability scale gives those two cells
+> an inverse-variance weight of ≈ 190 and lets two unidentified estimates dominate
+> the test. That is what produced the **Q_ε = 156.15** previously reported here
+> (against 79.5 on the valid scale) and `fig3` error bars reaching **1.116 and
+> 1.120**, impossible for a probability. On the logit scale a flat parameter
+> correctly receives almost no weight. Every run now prints a **“PARAMETER NOT
+> IDENTIFIED”** warning for any per-schedule parameter with se_z > 1 and records it
+> in `per_schedule_fits.csv` (`se_z_*`, `unidentified`, `eps_unidentified`);
+> `per_schedule_heterogeneity.csv` carries `scale = logit` and reports
+> `weighted_mean` back-transformed through the sigmoid. `fig3`'s intervals are now
+> built in logit space and mapped back, so they lie inside [0, 1] by construction.
 
 **φ is the only parameter that is homogeneous across schedules**: its spread is what
-the within-schedule SEs predict (p = 0.29). ε swings by a factor of two, and τ is
-*as heterogeneous as ε* once its smaller scale is set against its SEs (Q = 81 vs
-156, both p < 10⁻¹⁶). ε's drift is consistent with it absorbing schedule-specific
+the within-schedule SEs predict (p = 0.32). ε swings by a factor of two, and τ is
+*as heterogeneous as ε* once each is set against its own SEs — on the valid scale
+they are **roughly equally so** (Q = 76.65 vs 79.51, both p < 10⁻¹⁵), where
+the old probability-scale test made ε look twice as heterogeneous as τ purely
+through the two plateau cells. ε's drift is consistent with it absorbing schedule-specific
 *miscalibration* rather than measuring a schedule-specific exploration rate
 (finding #4, `fig3`); τ's drift shows the trend weight does not transfer either,
 so only φ should be read as a population estimate.
@@ -179,16 +222,43 @@ Phase 2 predicted this from calibration analysis; Phase 3 confirms it by
 independent likelihood fitting.
 
 **Does it beat isotonic?** Isotonic is a monotone transform of `p_alt1` (the best
-one Training can fit), so it *cannot* represent a run-length-dependent effect; any
-reliable gain over it is structural information that recalibration cannot capture. The gain is
-small (the two rows differ in the 3rd decimal), so it is tested with a **paired
-subject-level test on EDA** (per-subject mean log p; paired t and a subject-cluster
-bootstrap 95% CI, `metrics.paired_subject_test`), against both the
-isotonic-recalibrated published model and the 3-parameter re-fit (M2). Results are
-in `runlength_tests.csv` and the transcript; in the current transcript (Training-selected
-≥4, n = 496 EDA subjects): vs isotonic +0.0073 [+0.0039, +0.0107], p = 4.5e−5; vs M2
-+0.0060 [+0.0038, +0.0084], p = 5e−7. The structural claim rests on the CI against
-isotonic excluding zero, not on the point difference.
+one Training can fit), so it *cannot* represent a run-length-dependent effect: a
+reliable gain over it is information that no recalibration of this forecast can
+reach. The gain is small (the two rows differ in the 3rd decimal), so it is tested
+with a **paired subject-level test on EDA** (per-subject mean log p; paired t and a
+subject-cluster bootstrap 95% CI, `metrics.paired_subject_test`), against both the
+isotonic-recalibrated published model and the 3-parameter re-fit (M2). Every run
+also breaks the same test down **by EDA schedule**, because three schedules pooled
+can hide a sign flip (`runlength_tests.csv`, `schedule` column):
+
+| EDA schedule | n | M3 − isotonic | p | M3 − M2 | p |
+|---|---|---|---|---|---|
+| **pooled (EDA)** | 496 | **+0.0073 [+0.0039, +0.0107]** | 4.5e−5 | **+0.0060 [+0.0038, +0.0084]** | 5.3e−7 |
+| schedule_4 | 201 | +0.0074 [+0.0026, +0.0126] | 0.0044 | +0.0063 [+0.0030, +0.0098] | 0.00032 |
+| schedule_5 | 176 | −0.0001 [−0.0050, +0.0052] | 0.96 | +0.0014 [−0.0011, +0.0041] | 0.29 |
+| schedule_7 | 119 | +0.0180 [+0.0098, +0.0268] | 7.1e−5 | +0.0124 [+0.0062, +0.0195] | 0.00039 |
+
+**What the breakdown licenses — and what it does not.** The pooled effect is real
+and the CI against isotonic excludes zero, but it is **carried by schedules 4 and 7
+and absent on schedule 5** (−0.0001, p = 0.96 — a flat null, not a small positive),
+and schedule 7 alone is 2.5× the pooled effect. So the defensible claim is *not*
+that recalibration fundamentally cannot capture run-length inertia in general; it is
+that **on two of these three EDA schedules** the run-length model carries
+information the best Training-fitted monotone map of `p_alt1` does not, and on the
+third it carries none. Per-schedule n is 119–201, so schedule 5's null is weak
+evidence of absence rather than evidence of a true zero — but it is enough that the
+effect must be reported as schedule-dependent rather than as a property of the
+model class.
+
+**How “held out” M3 really is.** Its parameters and its threshold were fitted and
+selected on Training alone, so the EDA numbers are held out *in that sense*. The
+**form** of the extension, though — a run-length-dependent φ with a threshold
+somewhere in 2–6 — was suggested by Phase 2, whose analysis pooled EDA + Training +
+schedule_0 (`02_mode_calibration/conditional_calibration.py:95-98`). The model
+*class* has therefore seen EDA even though none of M3's numbers were fitted on it.
+**Test (schedules 1/8/10) is the first genuinely clean evaluation of M3**, and of
+whether the schedule-dependence above is noise or real. This caveat applies wherever
+the M3 rung is called held out, including the ladder below.
 
 ### 7. K sensitivity: single-k agents vs the {0,1,2} mixture
 
@@ -233,10 +303,17 @@ other. But per finding #3, most of this repair is calibration.
 | M2 re-fitted (τ, ε, φ) | 3 | −0.5975 | +0.107 | 0.5953 | −0.020 |
 | **M3 + run-length φ (threshold selected on Training; ≥4 in the current transcript)** | 5 (4 continuous + 1 selected threshold) | **−0.5915** | **+0.113** | 0.6014 | −0.014 |
 
-Every rung loses E[p] relative to M0 (0.6153 on EDA). That is the algebra of
-calibration, not a defect of any rung: for p → 0.5 + α(p − 0.5), ΔE[p] =
-(α − 1)(E[p] − 0.5) < 0 whenever α < 1 and E[p] > 0.5, and every rung shrinks
-CATIE's over-confident forecasts toward 0.5.
+Every rung loses E[p] relative to M0 (0.6153 on EDA). The algebra usually quoted
+for this is exact only for a **linear** shrinkage: for p → 0.5 + α(p − 0.5),
+ΔE[p] = (α − 1)(E[p] − 0.5) < 0 whenever α < 1 and E[p] > 0.5. No rung here is one
+— M1 is linear in the *logit*, and M2/M3 are different models rather than transforms
+of M0 — so the identity is the mechanism the pattern is **consistent with**, not a
+derivation of it. Every rung does empirically shrink CATIE's over-confident
+forecasts toward 0.5, and every rung's E[p] loss above is measured.
+
+**On M3's “held out”.** Its 4 continuous parameters and its threshold come from
+Training only, but the *form* of the extension came from Phase 2, which pooled EDA
+with Training and schedule_0 (§6). Test is the first clean evaluation of this rung.
 
 **Scale caveat.** The paper's CATIE-vs-QL gap of 0.109 is pooled over all 12
 schedules; the numbers above are EDA only (schedules 4/5/7). "+0.113 ≈ 104% of the
@@ -258,9 +335,11 @@ The paper's "remarkable" framing survives, but in a more precise form:
   only there — CATIE was competing handicapped.
 - **The honest headline:** *CATIE's E[log p] deficit is predominantly a calibration
   deficit, not a mechanism deficit.* 98.8% (95% CI 96.8–100.9%) of what parameter
-  re-fitting achieves is reachable by a content-free monotone recalibration. The one genuinely
-  structural defect found is the **constant inertia assumption**, which run-length
-  dependence corrects beyond anything recalibration can reach.
+  re-fitting achieves is reachable by a content-free monotone recalibration. The one
+  candidate structural defect found is the **constant inertia assumption**: making φ
+  run-length-dependent beats the best Training-fitted monotone recalibration on EDA
+  overall, though §6's breakdown shows that gain is carried by schedules 4 and 7 and
+  is absent on schedule 5. Test is the first clean check of whether it generalises.
 
 ## Correctness checks performed
 
@@ -276,14 +355,26 @@ The paper's "remarkable" framing survives, but in a more precise form:
   agree on the optimum to 4 dp (§1; `optimiser_agreement.csv`, regenerated by every
   run, as is the §4 forecast-distribution table, `forecast_distribution.csv`).
 - **Identifiability:** Hessian eigenvalues, condition number, subject-clustered
-  sandwich SEs (iid SEs alongside, delta method to the probability scale), sandwich
-  correlation matrix, and a 28×28 profile surface. The sandwich SEs were cross-checked
-  against a 200-resample subject bootstrap of the MLE.
+  sandwich SEs (with iid and **schedule**-clustered SEs alongside, delta method to
+  the probability scale), sandwich correlation matrix, and a 28×28 profile surface.
+- **The sandwich SEs are cross-checked against a subject bootstrap of the MLE.**
+  `fit_parameters.py --bootstrap-se N` (off by default) resamples the 1,483 Training
+  subjects with replacement N times and refits (τ, ε, φ) on each, L-BFGS-B
+  warm-started at the full-sample optimum. At **N = 120** (120/120 converged, ~5 min)
+  the bootstrap SDs are **0.0065 / 0.0144 / 0.0095** for τ / ε / φ, against sandwich
+  SEs of 0.0067 / 0.0159 / 0.0101 — ratios 0.98 / 0.90 / 0.94, so the sandwich is if
+  anything mildly conservative and its asymptotics hold at this sample size
+  (`bootstrap_se.csv`, which carries both the probability and the logit scale). An
+  earlier version of this README claimed a 200-resample cross-check for which no
+  code existed; this is the real one, and the CSV is committed so it is checkable.
 - **Held-out validation:** every headline gain is reported on EDA, which is not used
   for fitting. All recalibration maps are fitted on Training with trial 1 excluded.
   The run-length threshold is selected on Training; EDA is used once,
   to score the selected model. The run-length-vs-isotonic comparison is a paired
-  subject-level test on EDA (`runlength_tests.csv`), not a single-number difference.
+  subject-level test on EDA (`runlength_tests.csv`), reported pooled **and per EDA
+  schedule**, not a single-number difference. One caveat is recorded in §6 rather
+  than claimed away: the *form* of M3 was suggested by a Phase 2 analysis that
+  pooled EDA, so Test is the first clean evaluation of that model class.
 - **The k-mixture weights are recomputed inside every likelihood evaluation**, since
   they depend on the parameters through the per-agent probabilities; treating them as
   fixed would give a subtly wrong optimum.
@@ -300,15 +391,18 @@ The paper's "remarkable" framing survives, but in a more precise form:
 | `figures/validation_output{,_eda,_schedule_0}.txt`, `paper_validation_*.csv`, `fig_validation_{Ep,Elogp}*` | Validation transcripts, tables and figures |
 | `fig1_profile_likelihood` | (ε, φ) profile surface, published vs fitted |
 | `fig2_model_ladder` | Gains of each ladder rung vs the paper's QL gap |
-| `fig3_per_schedule_fits` | Per-schedule τ/ε/φ with 95% CIs from the clustered sandwich SEs — φ's spread fits inside its error bars, τ's and ε's do not |
-| `k_enumeration.csv`, `optimiser_agreement.csv`, `recalibration_control.csv`, `isotonic_vs_refit.csv`, `forecast_distribution.csv`, `runlength_inertia.csv`, `runlength_tests.csv`, `per_schedule_fits.csv`, `per_schedule_heterogeneity.csv`, `model_ladder.csv`, `profile_surface.npz` | Backing tables (every table in this README is regenerated by `fit_parameters.py`) |
+| `fig3_per_schedule_fits` | Per-schedule τ/ε/φ with 95% CIs built in logit space from the clustered sandwich SEs and mapped back through the sigmoid (so every bar lies inside [0, 1]; the bars are asymmetric because the sigmoid is) — φ's spread fits inside its error bars, τ's and ε's do not |
+| `../tests/test_metrics.py` | Unit tests for `metrics.py`: fixed bootstrap bin edges in `ece_ci` / `reliability_table_ci`, and `cluster_bootstrap`'s two reductions to `bootstrap_ci` |
+| `k_enumeration.csv`, `optimiser_agreement.csv`, `recalibration_control.csv`, `isotonic_vs_refit.csv`, `forecast_distribution.csv`, `runlength_inertia.csv`, `runlength_tests.csv`, `per_schedule_fits.csv`, `per_schedule_heterogeneity.csv`, `model_ladder.csv`, `bootstrap_se.csv`, `profile_surface.npz` | Backing tables (every table in this README is regenerated by `fit_parameters.py`) |
 
 ## How to run
 
 ```bash
 python my_code/catie_calibration/build_cache.py                       # once, ~1 min
 python my_code/catie_calibration/03_parameter_fitting/fit_parameters.py
+python my_code/catie_calibration/03_parameter_fitting/fit_parameters.py --bootstrap-se 120   # + §3b
 python my_code/catie_calibration/03_parameter_fitting/validate_against_paper.py [training|eda|schedule_0]
+python my_code/catie_calibration/tests/test_metrics.py                # unit tests, ~10 s
 ```
 
 The profile surface (784 nested optimisations) dominates runtime, followed by the

@@ -119,12 +119,48 @@ week uses it.
 
 ### Day 1 (Sat afternoon + Sun morning, ~5 h) — Reliability diagrams, the supervisor's versions
 
-Script: `04_calibration/reliability_redux.py`. Training + EDA caches, trial 1 dropped.
-Corrected model by default; published model as one overlay.
+Script: `04_calibration/reliability_redux.py`. Trial 1 dropped. Corrected model by
+default; published model as one overlay.
+
+**Which split each diagram is built on.** Every diagram in A, B and C is built on
+**Training** (1,483 subjects, ~146,800 scored trials). EDA gets exactly one panel: a copy
+of diagram C, generated *after* the Training versions are final, and reported whatever it
+shows. Test is not touched until Day 6.
+
+The reason is that Day 2 reads its recalibration map off these diagrams — "CATIE says 0.3,
+the graph says 0.6, so map 0.3 to 0.6" is a fit, not an observation. A map read off an EDA
+diagram would be a map fitted on EDA, and the EDA score reported afterwards would be
+meaningless. Training is also 3× larger, so the bins are tighter and the shape the
+supervisor is asking about is resolved better: 10 uniform bins over 146,800 Training trials
+is ~14,700 trials per bin, whose empirical rate is known to roughly ±1 percentage point
+after the cluster bootstrap inflates for within-subject correlation, against a
+miscalibration gap of 5–10 points. On EDA the same bins hold ~4,900 trials.
+
+The EDA panel answers one question only — does the S-shape replicate on data the map was
+not read from — and answers it as evidence, not as a decision. The discipline that keeps it
+honest: **no choice may be made after seeing it.** Not the bin count, not the map family,
+not switching to quantile bins. If the EDA panel makes a change look attractive, the change
+must be justified on Training grounds or not made at all.
+
+This is also the answer to the overfitting worry about "calibrating from the graph". The
+worry is that the wiggles read off the curve are noise and will not hold on new data. Three
+things bound it, and all three are measurements rather than assumptions: (i) the map is
+fitted on Training and scored on EDA, so if it were fitting noise the held-out E[log p]
+would not improve; (ii) at ~14,700 trials per bin the per-bin noise is ~5–10× smaller than
+the miscalibration being corrected, so a 10-bin map has almost nothing to overfit; (iii)
+the Day 2 bin sweep (10/20/50/100) shows where held-out performance turns over, which is
+where overfitting actually begins. The real limits on the map are elsewhere: every
+calibration map lowers E[p] (§2 Day 2), and a map is a post-processor rather than a
+mechanism, which is why Day 3 also pursues the model-side route to the same frontier.
+
+Bin edges are computed once on Training and held fixed across every bootstrap replicate and
+across the EDA panel; edges that move with the resample give a CI for a moving target.
 
 - **A. Bin count.** P(biased) with 10 and 20 uniform bins plus 20 quantile bins, cluster
   CIs, per-bin n, points coloured by the H=1 fraction so the non-monotone 0.35–0.65 stretch
-  is visibly the heuristic-only region. Table: ECE vs bin count, Training and EDA.
+  is visibly the heuristic-only region. Table: ECE vs bin count, with a Training and an EDA
+  column — the EDA column is reported, never selected from (the bin count for Day 2 is
+  fixed at 10 by the supervisor's request, and the sweep is a sensitivity analysis).
 - **B. Doubled / action-based.** Every trial contributes (p_alt1, y) and (1−p_alt1, 1−y).
   Symmetric by construction. Also drawn with the two c_prev strata overlaid: the doubled
   plot *pools* the strata, it does not erase them.
@@ -136,8 +172,10 @@ Corrected model by default; published model as one overlay.
   model); why B is symmetric and pools c_prev; why C is the informative symmetric
   coordinate.
 
-Output: `fig1_bins.png`, `fig2_doubled.png`, `fig3_folded_by_runlength.png`,
-`ece_vs_bins.csv`, `reliability_tables.csv`.
+Output: `fig1_bins.png`, `fig2_doubled.png`, `fig3_folded_by_runlength.png` (all Training),
+`fig4_folded_eda.png` (the single EDA replication panel, generated last), `ece_vs_bins.csv`,
+`reliability_tables.csv`. Every table carries a `split` column so no figure or row is
+ambiguous about which data produced it.
 
 ### Day 2 (Sun afternoon + Mon, ~5 h) — "Calibrate from the graph", done properly
 

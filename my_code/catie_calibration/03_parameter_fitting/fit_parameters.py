@@ -37,17 +37,22 @@ within c_prev=0 alone). A constant phi -- and equally an asymmetric phi, one per
 side of c_prev -- cannot represent that. So a run-length-dependent phi is fitted
 here as a candidate, ahead of Phase 4, because it is the extension the data demand.
 
-PROTOCOL. Fit on Training (1,483 subjects, schedules 2/3/6/9/11). Select on EDA
-(496, schedules 4/5/7). schedule_0 (549) is an out-of-distribution check. Test
-(schedules 1/8/10) is NOT touched and is not even present in the cache.
+PROTOCOL. Fit on Training (1,483 subjects, schedules 2/3/6/9/11). Score once on EDA
+(496, schedules 4/5/7); no selection on EDA. schedule_0 (549) is an
+out-of-distribution check. Test (schedules 1/8/10) is NOT touched and is not even
+present in the cache. The one discrete choice in this script -- the run-length
+threshold of section 5 -- is made on Training.
 
 Run:  python my_code/catie_calibration/03_parameter_fitting/fit_parameters.py
+      python .../fit_parameters.py --bootstrap-se 120   # + the section 3b check
 """
 
 from __future__ import annotations
 
+import argparse
 import pathlib
 import sys
+import time
 import warnings
 
 import matplotlib
@@ -135,7 +140,20 @@ def build_streak(cache):
     return streak
 
 
-def main():
+def parse_args(argv=None):
+    ap = argparse.ArgumentParser(
+        description="Phase 3 -- re-fitting CATIE's parameters, with recalibration "
+                    "as the control.")
+    ap.add_argument("--bootstrap-se", type=int, default=0, metavar="N",
+                    help="N > 0: cross-check section 3's subject-clustered sandwich "
+                         "SEs against a subject bootstrap of the MLE with N "
+                         "resamples (section 3b; writes figures/bootstrap_se.csv). "
+                         "Default 0 = skip. N = 120 costs about 4 minutes.")
+    return ap.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     log = open(OUT_DIR / "output.txt", "w", encoding="utf-8")
     sys.stdout = M.Tee(sys.__stdout__, log)
@@ -220,7 +238,7 @@ def main():
 
     fit_tr, fit_ed, fit_s0 = (mean_log_p(c, **best) for c in (tr, ed, s0))
     print(f"\n   {'split':<14}{'published':>12}{'fitted':>12}{'gain':>10}")
-    for nm, b, f_ in [("training", base_tr, fit_tr), ("EDA (select)", base_ed, fit_ed),
+    for nm, b, f_ in [("training", base_tr, fit_tr), ("EDA (held out)", base_ed, fit_ed),
                       ("schedule_0 (OOD)", base_s0, fit_s0)]:
         print(f"   {nm:<14}{b:>12.4f}{f_:>12.4f}{f_-b:>+10.4f}")
     print(f"\n   E[p]: published {mean_p(ed, **PUBLISHED):.4f} -> fitted "
@@ -287,15 +305,36 @@ def main():
           f"max |.| = {np.abs(score_tot).max() / n_cells:.2e}")
     B_inv = np.linalg.inv(n_cells * Hm)
     cov = B_inv @ (S.T @ S) @ B_inv * (G / (G - 1))
+    # Same sandwich, different CLUSTER. Subjects are the right unit for "how well is
+    # this parameter pinned down for another PARTICIPANT drawn from these five
+    # schedules". They are the wrong unit for "for another SCHEDULE": there the five
+    # schedules are themselves the sampling unit, and the parameters drift a long way
+    # between them (section 6). Aggregating the per-subject scores WITHIN schedule
+    # before the outer product gives that second, much weaker, statement. G = 5, so
+    # the G/(G-1) correction is a substantial 1.25 and five clusters is few enough
+    # that this SE is itself imprecise -- read it as a magnitude, not an interval.
+    sch_ids = tr.schedule
+    sch_u = np.unique(sch_ids)
+    G_sch = len(sch_u)
+    S_sch = np.stack([S[sch_ids == sc].sum(axis=0) for sc in sch_u])
+    cov_sch = B_inv @ (S_sch.T @ S_sch) @ B_inv * (G_sch / (G_sch - 1))
     se_iid = np.sqrt(np.clip(np.diag(cov_iid), 0, None))
     se = np.sqrt(np.clip(np.diag(cov), 0, None))
+    se_sch = np.sqrt(np.clip(np.diag(cov_sch), 0, None))
     print(f"\n   SEs (delta method, logit -> prob); N_trials = {n_cells:,}, "
-          f"G = {G:,} subjects, G/(G-1) applied to the sandwich:")
-    print(f"      {'param':<8}{'fitted':>8}{'iid':>10}{'sandwich':>10}")
+          f"G = {G:,} subjects / {G_sch} schedules, G/(G-1) applied to each sandwich:")
+    print(f"      {'param':<8}{'fitted':>8}{'iid':>10}{'subj-clust':>12}{'sched-clust':>13}")
     for i, nm in enumerate(order):
         p_ = best[nm]
         d_ = p_ * (1 - p_)
-        print(f"      {nm:<8}{p_:>8.4f}{se_iid[i] * d_:>10.4f}{se[i] * d_:>10.4f}")
+        print(f"      {nm:<8}{p_:>8.4f}{se_iid[i] * d_:>10.4f}{se[i] * d_:>12.4f}"
+              f"{se_sch[i] * d_:>13.4f}")
+    print("      subj-clust  = uncertainty for a new PARTICIPANT from these five")
+    print("                    schedules. This is the headline SE.")
+    print("      sched-clust = uncertainty for a new SCHEDULE, the five schedules")
+    print("                    being the sampling unit. tau and eps are far less")
+    print("                    certain there; phi is barely affected -- the same")
+    print("                    message as section 6's heterogeneity test.")
     corr = cov / np.outer(np.sqrt(np.diag(cov)), np.sqrt(np.diag(cov)))
     print(f"\n   parameter correlation matrix, subject-clustered sandwich "
           f"({', '.join(order)}):")
@@ -304,6 +343,63 @@ def main():
     ridge = abs(corr[order.index("eps"), order.index("phi")])
     print(f"\n   |corr(eps, phi)| = {ridge:.3f} -> "
           f"{'RIDGE present' if ridge > 0.7 else 'no strong ridge'}")
+
+    # -- 3b. Subject bootstrap of the MLE, an independent check on the sandwich --
+    # The sandwich is an asymptotic, analytic estimate assembled from the Hessian and
+    # the per-subject scores. A subject bootstrap makes neither approximation: it
+    # refits the model on resampled subjects and reads off the spread of the
+    # estimates. Agreement means the sandwich's asymptotics are doing their job at
+    # this sample size. Off by default (~2 s per resample); --bootstrap-se N runs it.
+    if args.bootstrap_se > 0:
+        n_bs = int(args.bootstrap_se)
+        print(f"\n   3b. SUBJECT BOOTSTRAP OF THE MLE -- {n_bs} resamples of the "
+              f"{G:,} Training")
+        print("       subjects with replacement, (tau, eps, phi) refitted on each, "
+              "L-BFGS-B")
+        print("       warm-started at the full-sample optimum (the resampled surfaces "
+              "have the")
+        print("       same shape, so a multi-start search would only cost time). "
+              "Running ...", flush=True)
+        rng_bs = np.random.default_rng(RNG_SEED)
+        t_bs = time.time()
+        bs_z, n_fail = [], 0
+        for _ in range(n_bs):
+            idx = rng_bs.integers(0, tr.n_subjects, tr.n_subjects)
+            f_b, _ = negloglik_factory(tr.subset(idx), ks=(0, 1, 2),
+                                       free=("tau", "eps", "phi"))
+            r_b = optimize.minimize(f_b, z_hat, method="L-BFGS-B")
+            if np.isfinite(r_b.fun) and np.all(np.isfinite(r_b.x)):
+                bs_z.append(np.atleast_1d(r_b.x))
+            else:
+                n_fail += 1
+        bs_z = np.asarray(bs_z)
+        bs_p = _sigmoid(bs_z)
+        se_boot_z = bs_z.std(axis=0, ddof=1)
+        se_boot_p = bs_p.std(axis=0, ddof=1)
+        print(f"       {len(bs_z)}/{n_bs} resamples converged ({n_fail} discarded) "
+              f"in {time.time() - t_bs:.0f} s")
+        print(f"\n      {'param':<8}{'fitted':>8}{'sandwich':>10}"
+              f"{'bootstrap SD':>14}{'ratio':>8}")
+        for i, nm in enumerate(order):
+            p_ = best[nm]
+            d_ = p_ * (1 - p_)
+            sw = se[i] * d_
+            print(f"      {nm:<8}{p_:>8.4f}{sw:>10.4f}{se_boot_p[i]:>14.4f}"
+                  f"{se_boot_p[i] / sw:>8.2f}")
+        pd.DataFrame([{"param": nm, "fitted": best[nm],
+                       "se_sandwich": float(se[i] * best[nm] * (1 - best[nm])),
+                       "se_bootstrap": float(se_boot_p[i]),
+                       "se_sandwich_logit": float(se[i]),
+                       "se_bootstrap_logit": float(se_boot_z[i]),
+                       "n_boot_requested": n_bs, "n_boot_converged": int(len(bs_z))}
+                      for i, nm in enumerate(order)]
+                     ).to_csv(OUT_DIR / "bootstrap_se.csv", index=False)
+        print("      Probability scale. The bootstrap SD needs no delta method; the")
+        print("      sandwich column does. bootstrap_se.csv carries both scales.")
+    else:
+        print("\n   3b. subject bootstrap of the MLE: SKIPPED "
+              "(pass --bootstrap-se N to run it;")
+        print("       figures/bootstrap_se.csv holds the last run's result)")
 
     # profile likelihood over (eps, phi)
     print("\n   computing (eps, phi) profile likelihood surface ...", flush=True)
@@ -387,8 +483,14 @@ def main():
         print(f"   {nm:<34}{pl:>5}{lp:>11.4f}{ece_:>9.4f}{lp-base_ed:>+9.4f}{ep_:>9.4f}")
     pd.DataFrame([{"model": r[0], "n_par": r[1], "elogp_eda": r[2], "ece_eda": r[3], "ep_eda": r[4]}
                   for r in rows]).to_csv(OUT_DIR / "recalibration_control.csv", index=False)
-    print("   Every recalibrated row loses E[p] relative to the published model: for a")
-    print("   shrinkage p -> 0.5 + a(p - 0.5), dE[p] = (a - 1)(E[p] - 0.5) < 0 when E[p] > 0.5.")
+    print("   Every recalibrated row loses E[p] relative to the published model. The")
+    print("   algebra behind that: for a LINEAR shrinkage p -> 0.5 + a(p - 0.5),")
+    print("   dE[p] = (a - 1)(E[p] - 0.5), which is < 0 whenever a < 1 and E[p] > 0.5.")
+    print("   That identity is exact only for a linear shrinkage of p. None of the rows")
+    print("   above is one: temperature is linear in the LOGIT, isotonic is an arbitrary")
+    print("   monotone map, and the re-fit is a different model rather than a transform")
+    print("   of this one. So the algebra is the mechanism these numbers are CONSISTENT")
+    print("   WITH, not a derivation of them -- the losses themselves are measured.")
 
     temp_gain = rows[1][2] - base_ed
     iso_gain = rows[3][2] - base_ed
@@ -523,13 +625,40 @@ def main():
     print(f"\n   paired subject-level tests on EDA (per-subject mean log p, "
           f"n = {ed.n_subjects} subjects; cluster bootstrap 95% CI, paired t):")
     rl_tests = []
-    for nm, key, lp_o in [("isotonic recal. (sec. 4)", "isotonic", lp_iso),
-                          ("M2 re-fit (tau,eps,phi)", "m2_refit", lp_m2)]:
+    comparisons = [("isotonic recal. (sec. 4)", "isotonic", lp_iso),
+                   ("M2 re-fit (tau,eps,phi)", "m2_refit", lp_m2)]
+    for nm, key, lp_o in comparisons:
         t_ = M.paired_subject_test(lp_rl, lp_o, sid_ed)
         print(f"   run-length (>={thr_b}) - {nm:<26} {t_['mean_diff']:+.4f} "
               f"[{t_['ci_lo']:+.4f}, {t_['ci_hi']:+.4f}]  t = {t_['t']:.2f}  "
               f"p = {t_['p']:.2g} {M.stars(t_['p'])}")
-        rl_tests.append({"comparison": f"runlength_ge{thr_b}_minus_{key}", **t_})
+        rl_tests.append({"comparison": f"runlength_ge{thr_b}_minus_{key}",
+                         "schedule": "EDA_pooled", **t_})
+
+    # Per-EDA-schedule breakdown of exactly the same tests. The pooled rows above are
+    # a claim about EDA as a whole; three schedules pooled can hide a sign flip, and a
+    # structural claim ("run-length inertia is real, not recalibration") is much
+    # stronger if it holds schedule by schedule than if one schedule carries it. Same
+    # clustered test, subjects restricted to one schedule -- 100-200 subjects each, so
+    # the per-schedule CIs are correspondingly wider and a null is weak evidence of
+    # absence. lp_* are flat over subjects x scored trials, so a per-subject mask
+    # repeats to a per-cell mask.
+    print(f"\n   per-EDA-schedule breakdown (same test, subjects clustered within "
+          f"each schedule;")
+    print("   the pooled rows above are these three schedules together):")
+    print(f"   {'schedule':<12}{'n':>5}   {'vs isotonic recal. (sec. 4)':<42}"
+          f"{'vs M2 re-fit (tau,eps,phi)':<42}")
+    for sch in sorted(set(ed.schedule), key=lambda s_: int(s_.split("_")[-1])):
+        m_sub = ed.schedule == sch
+        m_cell = np.repeat(m_sub, ed.n_trials - 1)
+        cells = []
+        for nm, key, lp_o in comparisons:
+            t_ = M.paired_subject_test(lp_rl[m_cell], lp_o[m_cell], sid_ed[m_cell])
+            cells.append(f"{t_['mean_diff']:+.4f} [{t_['ci_lo']:+.4f}, "
+                         f"{t_['ci_hi']:+.4f}] p={t_['p']:.2g} {M.stars(t_['p'])}")
+            rl_tests.append({"comparison": f"runlength_ge{thr_b}_minus_{key}",
+                             "schedule": sch, **t_})
+        print(f"   {sch:<12}{int(m_sub.sum()):>5}   {cells[0]:<42}{cells[1]:<42}")
 
     # Nested-model comparison on TRAINING (in-sample): run-length model M3 vs the
     # 3-par re-fit M2 it nests. A classical LR chi2 would treat every trial as an
@@ -549,7 +678,7 @@ def main():
     print("   in-sample nested comparison on Training, subject-clustered; the held-out "
           "comparisons are the EDA rows above / runlength_tests.csv")
     rl_tests.append({"comparison": f"runlength_ge{thr_b}_minus_m2_refit_TRAIN_insample",
-                     **t_tr})
+                     "schedule": "Training_insample", **t_tr})
     pd.DataFrame(rl_tests).to_csv(OUT_DIR / "runlength_tests.csv", index=False)
 
     # ── 5b. Does the fit actually REPAIR Phase 2's calibration split? ────────
@@ -583,10 +712,15 @@ def main():
     print("6. PER-SCHEDULE FITS -- do the parameters transfer, or drift?")
     print("=" * 78)
     print("   SEs are subject-clustered sandwich SEs on each schedule alone (sec. 3's")
-    print("   machinery, delta method to the probability scale).\n")
-    print(f"   {'schedule':<14}{'n':>6}{'tau':>9}{'eps':>9}{'phi':>9}{'E[logp] fit':>13}"
-          f"{'se_tau':>9}{'se_eps':>9}{'se_phi':>9}")
+    print("   machinery). The fit lives in LOGIT space, so se_z is the SE the sandwich")
+    print("   actually produces; se_* below is its delta-method image on the")
+    print("   probability scale, se_z * p * (1 - p). Both go into per_schedule_fits.csv,")
+    print("   and the heterogeneity test below uses se_z -- see the note there.\n")
+    print(f"   {'schedule':<12}{'n':>5}{'tau':>8}{'eps':>8}{'phi':>8}{'E[logp]':>10}"
+          f"{'se_tau':>8}{'se_eps':>8}{'se_phi':>8}"
+          f"{'se_z_tau':>10}{'se_z_eps':>10}{'se_z_phi':>10}")
     ps_rows = []
+    unident = []
     # numeric order (a plain sort puts schedule_11 before schedule_2)
     for sch in sorted(set(tr.schedule), key=lambda s: int(s.split("_")[-1])):
         sub = tr.subset(tr.schedule == sch)
@@ -598,42 +732,93 @@ def main():
         S_s = subject_scores(sub, z_s, order_s, ks=(0, 1, 2))
         Binv_s = np.linalg.inv(n_cells_s * H_s)
         cov_s = Binv_s @ (S_s.T @ S_s) @ Binv_s * (G_s / (G_s - 1))
-        se_s = {nm: float(np.sqrt(max(cov_s[i, i], 0.0)) * b_s[nm] * (1 - b_s[nm]))
-                for i, nm in enumerate(order_s)}
-        print(f"   {sch:<14}{sub.n_subjects:>6}{b_s['tau']:>9.4f}{b_s['eps']:>9.4f}"
-              f"{b_s['phi']:>9.4f}{-nll_s:>13.4f}"
-              f"{se_s['tau']:>9.4f}{se_s['eps']:>9.4f}{se_s['phi']:>9.4f}")
+        se_z_s = {nm: float(np.sqrt(max(cov_s[i, i], 0.0)))
+                  for i, nm in enumerate(order_s)}
+        se_s = {nm: se_z_s[nm] * b_s[nm] * (1 - b_s[nm]) for nm in order_s}
+        # An SE of more than 1 in logit space means a 95% interval spanning nearly
+        # four logits: the likelihood is flat in that parameter on that schedule and
+        # the point estimate is not pinned down. Same idea as the phi_long > 0.999
+        # boundary warning in section 5.
+        flat = [nm for nm in order_s if se_z_s[nm] > 1.0]
+        unident += [{"schedule": sch, "param": nm, "value": b_s[nm],
+                     "se_z": se_z_s[nm]} for nm in flat]
+        print(f"   {sch:<12}{sub.n_subjects:>5}{b_s['tau']:>8.4f}{b_s['eps']:>8.4f}"
+              f"{b_s['phi']:>8.4f}{-nll_s:>10.4f}"
+              f"{se_s['tau']:>8.4f}{se_s['eps']:>8.4f}{se_s['phi']:>8.4f}"
+              f"{se_z_s['tau']:>10.4f}{se_z_s['eps']:>10.4f}{se_z_s['phi']:>10.4f}")
         ps_rows.append({"schedule": sch, "n": sub.n_subjects, **b_s, "elogp": -nll_s,
-                        **{f"se_{nm}": se_s[nm] for nm in order_s}})
+                        **{f"se_{nm}": se_s[nm] for nm in order_s},
+                        **{f"se_z_{nm}": se_z_s[nm] for nm in order_s},
+                        "unidentified": "|".join(flat),
+                        "eps_unidentified": "eps" in flat})
     psd = pd.DataFrame(ps_rows)
     psd.to_csv(OUT_DIR / "per_schedule_fits.csv", index=False)
     print(f"\n   spread across schedules: tau {psd.tau.min():.3f}-{psd.tau.max():.3f}, "
           f"eps {psd.eps.min():.3f}-{psd.eps.max():.3f}, "
           f"phi {psd.phi.min():.3f}-{psd.phi.max():.3f}")
 
+    if unident:
+        print("\n   WARNING -- PARAMETER NOT IDENTIFIED on the schedule(s) below.")
+        print("   Its logit-scale sandwich SE exceeds 1, i.e. the likelihood is flat in")
+        print("   that parameter on that schedule: the point estimate is arbitrary")
+        print("   within a wide plateau, and its delta-method probability-scale SE is")
+        print("   not a meaningful precision.")
+        for u in unident:
+            print(f"      {u['schedule']:<12} {u['param']:<4} = {u['value']:.4f}, "
+                  f"se(logit) = {u['se_z']:.2f}  ->  95% CI on the probability scale "
+                  f"[{_sigmoid(_logit(u['value']) - 1.96 * u['se_z']):.4f}, "
+                  f"{_sigmoid(_logit(u['value']) + 1.96 * u['se_z']):.4f}]")
+        print("   These cells must NOT be given inverse-variance weight on the")
+        print("   probability scale, where the delta method shrinks their huge logit")
+        print("   SE into a small-looking number. The Q test below works in logit")
+        print("   space precisely so that a flat parameter gets almost no weight.")
+
     # Cochran Q: is the between-schedule spread more than the within-schedule SEs
     # predict? Q = sum_s w_s (theta_s - theta_bar)^2, w_s = 1/SE_s^2, theta_bar the
     # inverse-variance-weighted mean, df = n_schedules - 1, I^2 = max(0, (Q-df)/Q).
-    print("\n   Cochran Q heterogeneity test across schedules (inverse-variance weights")
-    print("   from the sandwich SEs, probability scale):")
+    #
+    # ON WHICH SCALE. The test runs in LOGIT space, the space the model is
+    # parameterised in and the space the sandwich covariance is computed in. The
+    # delta method se_p = se_z * p * (1 - p) is a local linearisation of the sigmoid
+    # and is only valid where the likelihood is locally quadratic. Where a parameter
+    # sits on a PLATEAU it is not: eps on schedules 9 and 11 is fitted at ~0.975 with
+    # se_z ~ 3, i.e. essentially unconstrained, and the delta method reports that as
+    # se_p ~ 0.072 -- a small number, which on the probability scale hands those two
+    # cells an inverse-variance weight of ~190 and drags the weighted mean toward
+    # them. Doing it that way inflates Q_eps from 79.5 to 156 and puts fig3's error
+    # bars at 1.12, outside [0, 1]. In logit space a flat parameter correctly
+    # receives almost no weight. weighted_mean is reported back through the sigmoid
+    # so it stays readable as a probability.
+    print("\n   Cochran Q heterogeneity test across schedules, on the LOGIT scale")
+    print("   (inverse-variance weights 1/se_z^2 from the sandwich SEs; the weighted")
+    print("   mean is shown back-transformed through the sigmoid):")
     print(f"   {'param':<8}{'Q':>9}{'df':>4}{'p':>10}{'I^2':>7}{'weighted mean':>15}")
     het_rows = []
     for nm in ("tau", "eps", "phi"):
-        th = psd[nm].to_numpy()
-        w = 1.0 / psd[f"se_{nm}"].to_numpy() ** 2
+        th = _logit(psd[nm].to_numpy())
+        w = 1.0 / psd[f"se_z_{nm}"].to_numpy() ** 2
         th_bar = float((w * th).sum() / w.sum())
         Q = float((w * (th - th_bar) ** 2).sum())
         df_ = len(th) - 1
         p_q = float(stats.chi2.sf(Q, df_))
         I2 = max(0.0, (Q - df_) / Q) if Q > 0 else 0.0
-        print(f"   {nm:<8}{Q:>9.2f}{df_:>4}{p_q:>10.2g}{100 * I2:>6.0f}%{th_bar:>15.4f}")
+        mu = float(_sigmoid(th_bar))
+        print(f"   {nm:<8}{Q:>9.2f}{df_:>4}{p_q:>10.2g}{100 * I2:>6.0f}%{mu:>15.4f}")
         het_rows.append({"param": nm, "Q": Q, "df": df_, "p": p_q, "I2": I2,
-                         "weighted_mean": th_bar})
+                         "weighted_mean": mu, "scale": "logit"})
     pd.DataFrame(het_rows).to_csv(OUT_DIR / "per_schedule_heterogeneity.csv", index=False)
     het = {r["param"]: r for r in het_rows}
     print(f"   -> phi {'is' if het['phi']['p'] > 0.05 else 'is NOT'} homogeneous across "
-          f"schedules (p = {het['phi']['p']:.2g}); tau (p = {het['tau']['p']:.1g}) and "
-          f"eps (p = {het['eps']['p']:.1g}) are both heterogeneous.")
+          f"schedules (Q = {het['phi']['Q']:.1f}, p = {het['phi']['p']:.2g}), so it is")
+    print(f"      the one parameter whose between-schedule spread is no more than its")
+    print(f"      own within-schedule SEs predict. tau (Q = {het['tau']['Q']:.1f}, "
+          f"p = {het['tau']['p']:.1g}) and eps (Q = {het['eps']['Q']:.1f}, "
+          f"p = {het['eps']['p']:.1g})")
+    print(f"      are both strongly heterogeneous, and on this scale roughly equally "
+          f"so --")
+    print(f"      the probability-scale version of this test made eps look far worse "
+          f"than tau")
+    print(f"      only because of the plateau cells flagged above.")
 
     # ── 7. Summary ladder ────────────────────────────────────────────────────
     print("\n" + "=" * 78)
@@ -651,8 +836,12 @@ def main():
         print(f"   {nm:<32}{npar:>5}{lp:>14.4f}{lp-base_ed:>+9.4f}{ep_:>10.4f}{ep_-ep_m0:>+9.4f}")
     pd.DataFrame([{"model": a, "n_par": b, "elogp_eda": c, "ep_eda": d} for a, b, c, d in ladder]
                  ).to_csv(OUT_DIR / "model_ladder.csv", index=False)
-    print("   Every rung loses E[p] relative to M0: any shrinkage p -> 0.5 + a(p - 0.5)")
-    print("   changes E[p] by (a - 1)(E[p] - 0.5), negative whenever a < 1 and E[p] > 0.5.")
+    print("   Every rung loses E[p] relative to M0. The algebra of a LINEAR shrinkage")
+    print("   p -> 0.5 + a(p - 0.5) is dE[p] = (a - 1)(E[p] - 0.5), negative whenever")
+    print("   a < 1 and E[p] > 0.5, and that identity is exact for a linear shrinkage")
+    print("   only. M1 is linear in the logit; M2 and M3 are different models, not")
+    print("   transforms of M0. Every rung is nonetheless a net squash toward 0.5, so")
+    print("   the pattern is CONSISTENT WITH that algebra rather than implied by it.")
     print(f"\n   For scale, the paper's CATIE-vs-best-QL gap is {PAPER_GAP:+.3f}.")
     print(f"   Total gain here (M0 -> M3): {le_b-base_ed:+.4f} = "
           f"{100*(le_b-base_ed)/abs(PAPER_GAP):.0f}% of that gap.")
@@ -691,16 +880,28 @@ def main():
     x = np.arange(len(psd))
     greek = {"tau": r"$\tau$", "eps": r"$\epsilon$", "phi": r"$\phi$"}
     for i, (nm, col) in enumerate([("tau", "#9467bd"), ("eps", "#2ca02c"), ("phi", "#d62728")]):
-        # 95% CI from the per-schedule subject-clustered sandwich SEs, so the eye can
-        # judge the same evidence the Cochran Q test uses: phi's spread is within its
-        # error bars, tau's and eps's are not.
-        ax.errorbar(x, psd[nm], yerr=1.96 * psd[f"se_{nm}"], fmt="o-", color=col,
-                    capsize=3, lw=1.6, label=f"fitted {greek[nm]}")
-        ax.axhline(PUBLISHED[nm], color=col, ls=":", lw=1.2)
+        # 95% CI built in the LOGIT space the sandwich lives in, then mapped back
+        # through the sigmoid, so every bar lies inside [0, 1] by construction and the
+        # eye judges the same evidence the Cochran Q test uses: phi's spread is inside
+        # its error bars, tau's and eps's are not. The bars are asymmetric because the
+        # sigmoid is nonlinear -- that asymmetry is the honest picture. The old
+        # symmetric delta-method bar, p +- 1.96 * se_p, reached 1.12 for eps on
+        # schedules 9 and 11, where eps sits on a flat plateau (se_z ~ 3); there the
+        # interval below now correctly runs across most of (0, 1).
+        p_s = psd[nm].to_numpy()
+        z_s_ = _logit(p_s)
+        sez = psd[f"se_z_{nm}"].to_numpy()
+        lo_ = _sigmoid(z_s_ - 1.96 * sez)
+        hi_ = _sigmoid(z_s_ + 1.96 * sez)
+        ax.errorbar(x, p_s, yerr=np.vstack([p_s - lo_, hi_ - p_s]), fmt="o-",
+                    color=col, capsize=3, lw=1.6, label=f"fitted {greek[nm]}")
+        ax.axhline(PUBLISHED[nm], color=col, ls=":", lw=1.2,
+                   label=f"published {greek[nm]} = {PUBLISHED[nm]:g}")
     ax.set_xticks(x); ax.set_xticklabels(psd.schedule.str.replace("schedule_", ""))
+    ax.set_ylim(0.0, 1.0)
     ax.set_xlabel("schedule"); ax.set_ylabel("fitted value")
-    ax.set_title("Per-schedule fits (dotted = published value; bars = 95% CI)")
-    ax.legend(frameon=False, fontsize=9, ncol=3)
+    ax.set_title("Per-schedule fits (bars = 95% CI from the logit-scale sandwich SE)")
+    ax.legend(frameon=False, fontsize=8, ncol=3)
     ax.spines[["top", "right"]].set_visible(False)
     fig3.tight_layout()
 

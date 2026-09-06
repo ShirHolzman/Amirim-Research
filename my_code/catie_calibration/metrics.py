@@ -71,18 +71,26 @@ def _bin_index(p, edges):
 
 
 def reliability_table(p_alt1, outcome, n_bins=10, strategy="uniform",
-                      min_count=1) -> pd.DataFrame:
+                      min_count=1, edges=None) -> pd.DataFrame:
     """Binned reliability table.
 
     strategy : "uniform"  equal-width bins over [0, 1]
                "quantile" equal-mass bins (robust when p is clumped, which it is
                           here -- CATIE's output is heavily concentrated by the
                           [0.05, 0.95] clamp that epsilon induces)
+    edges    : pre-computed bin edges. When given, `strategy` and `n_bins` are not
+               consulted and the edges are used as they stand. This exists for
+               resampling: under strategy="quantile" the edges are a FUNCTION OF
+               THE DATA, so recomputing them inside every bootstrap replicate
+               would give a confidence interval for a moving target. Callers that
+               resample (`reliability_table_ci`, `ece_ci`) compute the edges once
+               on the full sample and pass them in. Default None = unchanged
+               behaviour: derive the edges from the data handed in.
     """
     p = np.asarray(p_alt1, float)
     y = np.asarray(outcome, float)
 
-    edges = _bin_edges(p, n_bins, strategy)
+    edges = _bin_edges(p, n_bins, strategy) if edges is None else np.asarray(edges, float)
     idx = _bin_index(p, edges)
     rows = []
     for b in range(len(edges) - 1):
@@ -102,9 +110,13 @@ def reliability_table(p_alt1, outcome, n_bins=10, strategy="uniform",
     return pd.DataFrame(rows)
 
 
-def ece(p_alt1, outcome, n_bins=10, strategy="uniform") -> float:
-    """Expected calibration error: n-weighted mean |empirical - predicted|."""
-    t = reliability_table(p_alt1, outcome, n_bins=n_bins, strategy=strategy)
+def ece(p_alt1, outcome, n_bins=10, strategy="uniform", edges=None) -> float:
+    """Expected calibration error: n-weighted mean |empirical - predicted|.
+
+    `edges` is passed straight through to `reliability_table`; see its docstring.
+    Omitting it (the default) leaves the behaviour unchanged.
+    """
+    t = reliability_table(p_alt1, outcome, n_bins=n_bins, strategy=strategy, edges=edges)
     if t.empty:
         return float("nan")
     return float((t["n"] / t["n"].sum() * t["gap"].abs()).sum())
@@ -219,10 +231,11 @@ def reliability_table_ci(p_alt1, outcome, subject_ids, n_bins=10, strategy="unif
     data (for "quantile" too), so the CI is for the rate inside a fixed bin."""
     p = np.asarray(p_alt1, float)
     y = np.asarray(outcome, float)
-    table = reliability_table(p, y, n_bins=n_bins, strategy=strategy, min_count=min_count)
+    edges = _bin_edges(p, n_bins, strategy)   # computed ONCE, on the full sample
+    table = reliability_table(p, y, n_bins=n_bins, strategy=strategy,
+                              min_count=min_count, edges=edges)
     if table.empty:
         return table
-    edges = _bin_edges(p, n_bins, strategy)
     bins = table["bin"].to_numpy()
 
     n_all = len(edges) - 1
@@ -243,11 +256,20 @@ def reliability_table_ci(p_alt1, outcome, subject_ids, n_bins=10, strategy="unif
 
 def ece_ci(p_alt1, outcome, subject_ids, n_bins=10, strategy="uniform", n_boot=2000,
            seed=DEFAULT_SEED):
-    """ECE with a subject-cluster-bootstrap 95% CI: (point, lo, hi)."""
+    """ECE with a subject-cluster-bootstrap 95% CI: (point, lo, hi).
+
+    Bin edges are computed ONCE on the full sample and held fixed across every
+    replicate, exactly as `reliability_table_ci` does. This matters only for
+    strategy="quantile", where the edges are a function of the data: letting each
+    replicate re-derive its own edges gives a CI for a bin definition that moves
+    with the resample rather than for the ECE of a fixed binning.
+    """
+    p = np.asarray(p_alt1, float)
+    y = np.asarray(outcome, float)
+    edges = _bin_edges(p, n_bins, strategy)
     return cluster_bootstrap(
-        lambda pp, yy: ece(pp, yy, n_bins=n_bins, strategy=strategy),
-        subject_ids, np.asarray(p_alt1, float), np.asarray(outcome, float),
-        n_boot=n_boot, seed=seed)
+        lambda pp, yy: ece(pp, yy, n_bins=n_bins, strategy=strategy, edges=edges),
+        subject_ids, p, y, n_boot=n_boot, seed=seed)
 
 
 def paired_subject_test(values_a, values_b, subject_ids, n_boot=10_000,
