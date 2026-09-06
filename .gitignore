@@ -5,9 +5,9 @@ my_code/Training_set/
 my_code/Test_set/
 my_code/Schedule0_set/
 # Archived first-investigation folder keeps its own raw copies
-my_code/initial_investigation/schedule_4/
-my_code/initial_investigation/schedule_5/
-my_code/initial_investigation/schedule_7/
+my_code/previous_errors/initial_investigation/schedule_4/
+my_code/previous_errors/initial_investigation/schedule_5/
+my_code/previous_errors/initial_investigation/schedule_7/
 
 # ── Generated output data files (CSV; regenerable by running the wrapper) ──────
 my_code/catie_results/*.csv
@@ -41,3 +41,4 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+.pytest_cache/
