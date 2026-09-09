@@ -37,7 +37,7 @@ set, so evaluating them on training schedules is IN-SAMPLE and is expected to lo
 It is shown here to answer "what did re-fitting do to E[p] per schedule", not as evidence
 of generalisation. Held-out numbers live in the Phase 3 README.
 
-Run:  python my_code/catie_calibration/03_parameter_fitting/validate_against_paper.py
+Run:  python my_code/catie_calibration/tests/catie/likelihood_test.py [training|eda|schedule_0]
 """
 
 from __future__ import annotations
@@ -53,14 +53,13 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
-HERE = pathlib.Path(__file__).parent
-sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parent))
+HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parents[1]))            # catie_calibration/
 
-from catie_likelihood import StateCache, mean_log_p, mean_p  # noqa: E402
-from metrics import Tee  # noqa: E402
+from catie.likelihood import StateCache, mean_log_p, mean_p  # noqa: E402
+from catie.metrics import Tee  # noqa: E402
 
-REPO = HERE.parent.parent.parent
+REPO = HERE.parents[3]                              # Amirim Research/
 EXTRACTED = REPO / "Data_resources" / "extracted_data"
 FIGDIR = HERE / "figures"
 FIGDIR.mkdir(exist_ok=True)
@@ -89,10 +88,22 @@ SPLIT_SCHEDULES = {
 # finding, not noise.
 MATCH_TOL = 0.0006
 
-SPLIT = sys.argv[1] if len(sys.argv) > 1 else "training"
-assert SPLIT in SPLIT_SCHEDULES, f"unknown split {SPLIT!r}; pick one of {list(SPLIT_SCHEDULES)}"
+# Which split this run scores. Set from argv inside main(); the values below are the
+# defaults that hold on import. The argv read MUST NOT happen at module level: this file
+# lives under tests/ and is named *_test.py, so pytest imports it during collection, and
+# sys.argv[1] would then be one of pytest's own arguments rather than a split name.
+SPLIT = "training"
 SCHEDULES = SPLIT_SCHEDULES[SPLIT]
-SUF = "" if SPLIT == "training" else f"_{SPLIT}"
+SUF = ""
+
+
+def select_split(argv) -> None:
+    """Point the module's SPLIT/SCHEDULES/SUF globals at the split named in argv."""
+    global SPLIT, SCHEDULES, SUF
+    SPLIT = argv[1] if len(argv) > 1 else "training"
+    assert SPLIT in SPLIT_SCHEDULES,         f"unknown split {SPLIT!r}; pick one of {list(SPLIT_SCHEDULES)}"
+    SCHEDULES = SPLIT_SCHEDULES[SPLIT]
+    SUF = "" if SPLIT == "training" else f"_{SPLIT}"
 
 
 # ── parsing the reported tables ──────────────────────────────────────────────
@@ -143,6 +154,7 @@ def score(cache: StateCache, params: dict, published_b: bool, drop_first: bool,
 
 
 def main() -> None:
+    select_split(sys.argv)
     out_path = FIGDIR / f"validation_output{SUF}.txt"
     with open(out_path, "w", encoding="utf-8") as fh:
         sys.stdout = Tee(sys.__stdout__, fh)

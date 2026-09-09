@@ -5,7 +5,8 @@ The project has no pytest dependency (see the venv at the repo root), so every
 test here is a plain function that raises AssertionError on failure, and the
 module doubles as its own runner:
 
-    python my_code/catie_calibration/tests/test_metrics.py
+    python -m pytest tests -q          # from my_code/catie_calibration/
+    python my_code/catie_calibration/tests/catie/metrics_test.py
 
 The functions are named `test_*` and take no fixtures, so `pytest` will collect
 and run them unchanged if it is ever added to the environment.
@@ -31,8 +32,8 @@ import sys
 
 import numpy as np
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-import metrics as M  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from catie import metrics as M  # noqa: E402
 
 
 # ── synthetic data ───────────────────────────────────────────────────────────

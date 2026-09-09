@@ -1,9 +1,9 @@
 """
-Element-by-element cross-check of catie_core.state_tensors() against MATLAB's own
+Element-by-element cross-check of catie.core.state_tensors() against MATLAB's own
 internal per-trial variables, extracted directly from an instrumented copy of the
 original .m likelihood function.
 
-Every prior check in this project (golden_test.py, 01_bug_correction/) compared
+Every prior check in this project (tests/catie/core_test.py, 01_bug_correction/) compared
 only the FINAL choice probability, end-to-end. This compares the intermediate
 state tensors themselves -- H, b, c_prev, s_prev, sbar_prev, g -- trial by trial,
 subject by subject, for k in {0,1,2}, against real MATLAB internals across the
@@ -32,7 +32,7 @@ import pandas as pd
 
 HERE = pathlib.Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-from catie_core import state_tensors  # noqa: E402
+from catie.core import state_tensors  # noqa: E402
 
 MATLAB_CSV = HERE / "results" / "state_tensors_matlab.csv"
 DATA_DIR = HERE.parent / "data"
@@ -49,14 +49,14 @@ TENSOR_NAMES = ("H", "b", "c_prev", "s_prev", "sbar_prev", "g")
 
 def load_all_subjects() -> pd.DataFrame:
     """Same population and subject_id convention as 01_bug_correction/bug_benchmark.py:
-    all four splits sanitize_splits.py produces.
+    all four splits catie/splits.py produces.
     """
     frames = []
 
     for name in ("eda", "training", "test", "schedule_0"):
         path = DATA_DIR / f"cleaned_{name}.csv"
         if not path.exists():
-            print(f"  !! {path} missing -- run sanitize_splits.py first")
+            print(f"  !! {path} missing -- run `python -m catie.splits` first")
             continue
         df = pd.read_csv(path)
         frames.append(df[["subject_id", "trial_number", "biased_reward",
@@ -139,7 +139,7 @@ def main() -> int:
     print("=" * 70)
     print("STATE TENSOR CROSS-CHECK PASSED" if ok else "STATE TENSOR CROSS-CHECK FAILED")
     if ok:
-        print("\nEvery one of H, b, c_prev, s_prev, sbar_prev, g in catie_core.py's")
+        print("\nEvery one of H, b, c_prev, s_prev, sbar_prev, g in catie/core.py's")
         print("state_tensors() matches MATLAB's own internal loop variables, trial by")
         print("trial, across the full sanitized population and all three k values.")
     return 0 if ok else 1

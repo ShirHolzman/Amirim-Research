@@ -1,8 +1,8 @@
 """
-Isolated verification that catie_core.mix_agents() reproduces the original
+Isolated verification that catie.core.mix_agents() reproduces the original
 MATLAB's Bayesian-model-averaging (k-mixture) arithmetic exactly.
 
-WHY THIS IS NOT ALREADY COVERED. golden_test.py check 1 compares the END of the
+WHY THIS IS NOT ALREADY COVERED. tests/catie/core_test.py check 1 compares the END of the
 pipeline -- state recursion + per-trial probability + BMA mixing -- against live
 MATLAB. It would pass even if the state recursion and the mixing contained
 compensating errors. verify_state_tensors.py covers the state recursion in
@@ -19,7 +19,7 @@ PROBABILITY SPACES:
   CHOICE space:
         p_decisions = mean(agents_choice_probabilities' * W, 2)
 
-  catie_core.mix_agents() instead keeps P(alt 1) and mixes in ALT-1 space:
+  catie.core.mix_agents() instead keeps P(alt 1) and mixes in ALT-1 space:
         mixed = (P.T @ W).mean(axis=1)
   converting to choice space only afterwards via p_of_observed_choice().
 
@@ -49,7 +49,7 @@ import pandas as pd
 
 HERE = pathlib.Path(__file__).parent
 sys.path.insert(0, str(HERE.parent))
-from catie_core import mix_agents, p_of_observed_choice  # noqa: E402
+from catie.core import mix_agents, p_of_observed_choice  # noqa: E402
 
 MATLAB_CSV = HERE / "results" / "bma_mixing_reference.csv"
 
@@ -101,7 +101,7 @@ def mut_lookahead(P_alt1, P_choice):
 def mut_likelihood_in_alt1_space(P_alt1, P_choice):
     """Accumulated the wrong likelihood: ran the cumprod over P(alt 1) instead of
     P(choice made). A highly plausible translation slip, since mix_agents()
-    receives P(alt 1) and must convert to choice space itself (catie_core.py:393)
+    receives P(alt 1) and must convert to choice space itself (catie/core.py:393)
     -- forgetting that one line lands exactly here."""
     W = _normalised_cumprod(P_alt1)[:, :-1]
     return (P_alt1.T @ W).mean(axis=1)

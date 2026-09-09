@@ -4,7 +4,7 @@ Four independent things are validated here, in the subsections below:
 1. **The bug correction** (`run_bug_comparison_all_schedules.m`) -- does fixing the
    three index errors actually improve E[p]/E[log p], measured in real MATLAB?
 2. **`state_tensors()` itself** (`export_state_tensors.m` /
-   `verify_state_tensors.py`) -- element-by-element, does catie_core.py's internal
+   `verify_state_tensors.py`) -- element-by-element, does catie/core.py's internal
    recursion match MATLAB's own loop variables, not just the final probability?
 3. **The k-mixture / BMA step** (`export_bma_mixing_inputs.m` /
    `verify_bma_mixing.py`) -- given MATLAB's own per-agent probabilities, does
@@ -14,7 +14,7 @@ Four independent things are validated here, in the subsections below:
 
 Together these cover the three stages of the likelihood pipeline separately --
 state recursion (2), per-trial probability (1), k-mixture (3) -- plus the
-end-to-end aggregate (4). `../golden_test.py` check 1 covers the composition of
+end-to-end aggregate (4). `../tests/catie/core_test.py` check 1 covers the composition of
 all three; these exist because a composition check alone cannot localise a
 fault, and could in principle be passed by two errors that cancel.
 
@@ -60,7 +60,7 @@ implementation-specific artifact in either one.
 
 ## A bug caught by a sanity check (historical)
 
-*The check described here has since been retired — `golden_test.py`'s check 1 now
+*The check described here has since been retired — `tests/catie/core_test.py`'s check 1 now
 compares against a live all-12-schedule MATLAB reference, which covers strictly more.
 The episode is kept because its lesson still applies.*
 
@@ -109,7 +109,7 @@ Takes a few minutes for ~3,300 subjects × 2 models × 3 k-agents.
 
 ## 2. Element-by-element validation of `state_tensors()`
 
-Everything above -- and every check in `../golden_test.py` before this section was
+Everything above -- and every check in `../tests/catie/core_test.py` before this section was
 added -- validates only the **final choice probability**, end-to-end. None of it
 looks at `state_tensors()`'s own outputs (`H`, `b`, `c_prev`, `s_prev`,
 `sbar_prev`, `g`): the parameter-free recursion that everything else in this
@@ -125,7 +125,7 @@ but not structurally impossible.
 |---|---|
 | `CATIE_FIXED/COMPETITION_CATIE_schedule_choice_probability_INSTRUMENTED.m` | Copy of the FIXED per-k function, with six added lines exporting `H`, `b`, `c_prev`, `s_prev`, `sbar_prev`, `g` -- MATLAB's own loop variables, captured at the exact point they're read -- alongside the existing `p_decisions` output |
 | `export_state_tensors.m` | Driver: runs the instrumented function for every subject × k∈{0,1,2} across all 12 schedules, writes `results/state_tensors_matlab.csv` (long format, one row per subject×k×trial) |
-| `verify_state_tensors.py` | Loads that CSV, calls `catie_core.state_tensors()` for the same subjects/k, and compares every tensor element-by-element |
+| `verify_state_tensors.py` | Loads that CSV, calls `catie.core.state_tensors()` for the same subjects/k, and compares every tensor element-by-element |
 
 `results/state_tensors_matlab.csv` is **not tracked in git** (≈1M rows,
 regenerable) -- see `.gitignore`.
@@ -149,7 +149,7 @@ produce. This is the entire sanitized population (all four splits) × all three
 k values × all 100 trials each -- not a sample.
 
 **Note on `g`:** MATLAB computes `p_choice_1_contingency_mode` unconditionally
-every trial, including trial 1. `catie_core.py`'s `state_tensors()` computes the
+every trial, including trial 1. `catie/core.py`'s `state_tensors()` computes the
 same value at trial 1 but doesn't store it (`g_arr[t]` is only written inside its
 `if t > 1` block), because trial 1's probability is hardcoded to 0.5 and never
 reads `g`. `verify_state_tensors.py` compares indices 1..99 (MATLAB trials
@@ -176,7 +176,7 @@ one such stretch.
 
 ## 3. Isolated validation of the k-mixture (Bayesian model averaging)
 
-Sections 1-2 and `../golden_test.py` leave one gap. golden_test compares the
+Sections 1-2 and `../tests/catie/core_test.py` leave one gap. core_test compares the
 **end** of the pipeline; `verify_state_tensors.py` covers the **start** (the
 state recursion). Neither isolates the final stage: the k∈{0,1,2} mixture in
 `COMPETITION_CATIE_schedule_choice_probability_hetro.m:20-25`. A mixing error
@@ -189,7 +189,7 @@ This section closes that gap by handing Python the per-agent probability matrix
 
 `COMPETITION_CATIE_schedule_choice_probability.m` returns **P(choice actually
 made)**, not P(alt 1) — its lines 136-139. So `hetro.m:25` forms its weighted
-average in *choice* space. `catie_core.mix_agents()` instead keeps P(alt 1) and
+average in *choice* space. `catie.core.mix_agents()` instead keeps P(alt 1) and
 mixes in *alt-1* space, converting afterwards via `p_of_observed_choice()`.
 
 These agree only because the BMA weights are a convex combination (they sum to
@@ -302,8 +302,8 @@ All 12 schedules, 3,332 subjects, 333,200 trials:
 | | E[log p] |
 |---|---|
 | Original unmodified MATLAB, as shipped (time-averaged weights) | **−0.6733** |
-| `catie_core.py` port, `weighting="shipped_time_avg"` | −0.6733 |
-| `catie_core.py` port, `weighting="per_trial"` (the paper's) | −0.6776 |
+| `catie/core.py` port, `weighting="shipped_time_avg"` | −0.6733 |
+| `catie/core.py` port, `weighting="per_trial"` (the paper's) | −0.6776 |
 | Paper, Tables S1/S2 | −0.678 |
 
 The port and real MATLAB agree exactly on the shipped code. The ~+0.0047 residual

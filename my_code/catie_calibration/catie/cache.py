@@ -22,7 +22,7 @@ Test (schedules 1, 8, 10) is deliberately NOT cached: it is touched exactly once
 the very end of the project, and having it absent from the cache makes accidental
 use structurally impossible rather than merely discouraged.
 
-Run:  python my_code/catie_calibration/build_cache.py
+Run:  cd my_code/catie_calibration && python -m catie.cache
 """
 
 from __future__ import annotations
@@ -34,12 +34,11 @@ import time
 import numpy as np
 import pandas as pd
 
-HERE = pathlib.Path(__file__).parent
-sys.path.insert(0, str(HERE))
-from catie_core import state_tensors  # noqa: E402
+from .core import state_tensors
 
-CACHE_DIR = HERE / "cache"
-DATA_DIR = HERE / "data"
+HERE = pathlib.Path(__file__).parent          # catie/
+CACHE_DIR = HERE.parent / "cache"
+DATA_DIR = HERE.parent / "data"
 
 K_VALUES = (0, 1, 2, 3)
 N_TRIALS = 100
@@ -79,7 +78,7 @@ def build_split(name: str) -> None:
         for k in K_VALUES:
             # mode="fixed": the corrected heuristic branch is the project baseline.
             # The published variant is recoverable from the same cache by zeroing b
-            # (they differ ONLY in b -- see catie_core.CatieState.as_published).
+            # (they differ ONLY in b -- see catie.core.CatieState.as_published).
             st = state_tensors(r1, r2, c1, k=k, mode="fixed")
             for t in TENSORS:
                 store[k][t][i] = getattr(st, t)

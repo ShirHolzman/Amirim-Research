@@ -1,5 +1,5 @@
 """
-Golden test for catie_core -- BLOCKING gate for every downstream analysis.
+Golden test for catie.core -- BLOCKING gate for every downstream analysis.
 
 Checks -- all SEVEN are blocking (each feeds `ok &= ...`, and main() returns
 a non-zero exit code if any fail; none is merely printed):
@@ -11,7 +11,7 @@ a non-zero exit code if any fail; none is merely printed):
      MATLAB, per-k -- so it's checked against ground truth directly, not
      just against split. Also inside verify_against_live_matlab().
   3. That monolithic, single-pass reference implementation (defined below,
-     sharing no code with catie_core.py -- no import of state_tensors,
+     sharing no code with catie/core.py -- no import of state_tensors,
      probability_from_state, or catie_probabilities) agrees with the
      production split. This is the real test of the refactor into "cache
      parameter-free state once, apply parameters afterward"; see the note
@@ -35,8 +35,8 @@ matlab/verify_state_tensors.py, against real per-trial data exported from an
 instrumented copy of the original .m file (matlab/export_state_tensors.m) --
 see that script for the strongest test of state_tensors() in this project.
 
-Run:  python my_code/catie_calibration/golden_test.py
-      python my_code/catie_calibration/golden_test.py --regenerate-matlab
+Run:  python my_code/catie_calibration/tests/catie/core_test.py
+      python my_code/catie_calibration/tests/catie/core_test.py --regenerate-matlab
 """
 
 import argparse
@@ -48,8 +48,8 @@ import time
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from catie_core import (  # noqa: E402
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from catie.core import (  # noqa: E402
     TAU, EPSILON, PHI,
     catie_hetero, catie_probabilities, mode_contributions, mode_weights,
     p_of_observed_choice, probability_from_state, state_tensors,
@@ -57,8 +57,8 @@ from catie_core import (  # noqa: E402
 
 TOLERANCE = 1e-12
 
-PROJECT_ROOT = pathlib.Path(__file__).parent.parent.parent
-MATLAB_DIR = pathlib.Path(__file__).parent / "matlab"
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[4]       # Amirim Research/
+MATLAB_DIR = pathlib.Path(__file__).resolve().parents[2] / "matlab"
 MATLAB_DRIVER = MATLAB_DIR / "export_original_reference_all_schedules.m"
 MATLAB_REFERENCE_CSV = MATLAB_DIR / "results" / "original_reference_all_schedules.csv"
 
@@ -81,7 +81,7 @@ RAW_SCHEDULE_DIRS = {
 
 # Checks 2-5 use the sanitized EDA split (496 subjects). Check 1 is independent
 # of this file -- it reads the raw per-subject CSVs directly, above.
-REFERENCE = pathlib.Path(__file__).parent / "data" / "cleaned_eda.csv"
+REFERENCE = pathlib.Path(__file__).resolve().parents[2] / "data" / "cleaned_eda.csv"
 N_EDA_ROWS = 49_600
 
 
@@ -89,16 +89,16 @@ def _reference_catie_probability(rewards_1, rewards_2, is_choice_1, k, mode,
                                  tau=TAU, epsilon=EPSILON, phi=PHI, n_trials=100):
     """Monolithic single-pass reference: computes P(alt 1) trial by trial in one
     loop, without ever separating parameter-free state from parameter-dependent
-    probability. Deliberately does not import or call anything from catie_core.py,
+    probability. Deliberately does not import or call anything from catie/core.py,
     so agreement with catie_probabilities() (state_tensors + probability_from_state)
     is real evidence for that refactor, not a tautology.
 
     mode="published" literally re-derives the bug from NaN propagation (`pays[t]`
     is genuinely unassigned at the point it's read, exactly as in the MATLAB),
-    rather than assuming b==0 the way catie_core.state_tensors does. If the two
+    rather than assuming b==0 the way catie.core.state_tensors does. If the two
     implementations agree here, that's an independent confirmation that "the
     heuristic branch is dead in published mode" follows from the NaN semantics,
-    not merely from how catie_core happens to be written.
+    not merely from how catie.core happens to be written.
     """
     nan = float("nan")
     r1 = np.concatenate([[nan], np.asarray(rewards_1, dtype=float)])
@@ -465,7 +465,7 @@ def main():
 
     print("=" * 74)
     print("GOLDEN TEST PASSED" if ok else "GOLDEN TEST FAILED")
-    print("\nNOTE: this file validates catie_core's END-TO-END output only. For a true")
+    print("\nNOTE: this file validates catie.core's END-TO-END output only. For a true")
     print("element-by-element check of the individual state tensors (H, b, c_prev,")
     print("s_prev, sbar_prev, g) against MATLAB's own internal variables, run")
     print("matlab/export_state_tensors.m then matlab/verify_state_tensors.py.")

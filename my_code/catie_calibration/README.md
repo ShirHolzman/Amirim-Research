@@ -43,10 +43,15 @@ Every number quoted anywhere points to one CSV row from one script.
 
 ```bash
 cd my_code/catie_calibration
-python -m pytest tests -q            # golden gate + paper reproduction + metrics
-python -m catie.splits               # builds data/cleaned_*.csv
-python -m catie.cache                # builds cache/
+python -m pytest tests -q                       # metrics unit checks
+python tests/catie/core_test.py                 # golden gate -- run this first
+python tests/catie/likelihood_test.py training  # paper reproduction (also: eda, schedule_0)
+python -m catie.splits                          # builds data/cleaned_*.csv
+python -m catie.cache                           # builds cache/
 ```
+
+The golden gate and the paper reproduction are scripts with a `main()`, not `pytest`
+test functions, so `pytest` collects them without running anything — run them directly.
 
 ## Correctness — what has actually been checked
 

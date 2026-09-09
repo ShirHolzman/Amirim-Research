@@ -18,7 +18,7 @@ Never open the outputs in Excel -- it silently rewrites values (a previous
 cleaned CSV lost its `time` column that way, "05-25-2020 15:11:02.738300" ->
 "11:02.7", and had its booleans re-cased).
 
-Run:  python my_code/catie_calibration/sanitize_splits.py
+Run:  cd my_code/catie_calibration && python -m catie.splits
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ import sys
 import numpy as np
 import pandas as pd
 
-MY_CODE = pathlib.Path(__file__).parent.parent
-OUT_DIR = pathlib.Path(__file__).parent / "data"
+MY_CODE = pathlib.Path(__file__).parent.parent.parent
+OUT_DIR = pathlib.Path(__file__).parent.parent / "data"
 
 N_TRIALS = 100
 MIN_CHOICES_PER_SIDE = 5

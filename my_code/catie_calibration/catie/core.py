@@ -1,5 +1,5 @@
 """
-catie_core — exact Python port of the competition's CATIE choice-probability model.
+catie.core — exact Python port of the competition's CATIE choice-probability model.
 
 Reference implementation being ported:
     Data_resources/competition_analysis-main/CATIE/
@@ -12,7 +12,7 @@ Two behaviours are exposed via `mode`:
 
     "published"  "bug-for-bug" faithful to the MATLAB above. Reproduces
                  my_code/initial_investigation/processing/eda_with_catie_probabilities.csv
-                 to ~2e-15 (see golden_test.py).
+                 to ~2e-15 (see tests/catie/core_test.py).
 
     "fixed"      corrects the trend/heuristic branch. In the MATLAB, lines 108-109
                  read `pays(trial)`, which is still NaN (preallocated line 16,

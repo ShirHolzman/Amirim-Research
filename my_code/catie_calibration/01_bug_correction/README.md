@@ -51,7 +51,7 @@ per-trial weighting on its own commented-out line 26. Verified per schedule agai
 paper's Fig S5 tables: per-trial weights + the heuristic bug + trial 1 included
 reproduces every schedule to ≤0.0005 (the 3-decimal rounding floor), with mixed-sign
 residuals. All numbers in this chapter now use the per-trial weighting
-(`catie_core.mix_agents(weighting="per_trial")`, the project default); the shipped
+(`catie.core.mix_agents(weighting="per_trial")`, the project default); the shipped
 time-averaged variant is retained as `"shipped_time_avg"` only for golden tests against
 live MATLAB. The published-vs-corrected comparison is paired on identical data under
 either weighting, so this chapter's conclusion never depended on the choice.
@@ -59,9 +59,9 @@ either weighting, so this chapter's conclusion never depended on the choice.
 ## Validation
 
 The Python port reproduces ORIGINAL, unmodified MATLAB, called live, to **2.33×10⁻¹⁵**
-across all 12 schedules (3,332 subjects, 333,200 trials) -- see `../golden_test.py`
+across all 12 schedules (3,332 subjects, 333,200 trials) -- see `../tests/catie/core_test.py`
 check 1. Per-schedule subject counts reproduce the paper's reported N exactly on all
-12 schedules. Run `../golden_test.py` — it is a blocking gate.
+12 schedules. Run `../tests/catie/core_test.py` — it is a blocking gate.
 
 **Independently confirmed in real MATLAB**, not just the Python port: `../matlab/` runs
 the unmodified original `.m` file against a minimally-patched copy across all 3,332
@@ -84,8 +84,8 @@ script (not the model), worth reading as an example of not trusting a first run.
 ## How to run
 
 ```bash
-python my_code/catie_calibration/golden_test.py
-python my_code/catie_calibration/sanitize_splits.py
+python my_code/catie_calibration/tests/catie/core_test.py
+cd my_code/catie_calibration && python -m catie.splits
 python my_code/catie_calibration/01_bug_correction/bug_benchmark.py
 ```
 
@@ -95,10 +95,10 @@ python my_code/catie_calibration/01_bug_correction/bug_benchmark.py
 
 ```
 my_code/{Training_set,Test_set,schedule_0}/**/*.csv
-   -> catie_calibration/sanitize_splits.py
+   -> catie_calibration/catie/splits.py
    -> catie_calibration/data/cleaned_{training,test,schedule_0}.csv
                                                                   \
 data/cleaned_eda.csv ------------------------------------+-> bug_benchmark.py
                                                                   /
-catie_calibration/catie_core.py (+ metrics.py) --------------------
+catie_calibration/catie/core.py (+ catie/metrics.py) --------------------
 ```

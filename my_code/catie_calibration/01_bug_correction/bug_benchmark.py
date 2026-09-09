@@ -34,12 +34,12 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-from catie_core import (  # noqa: E402
+from catie.core import (  # noqa: E402
     EPSILON, PHI, TAU,
     mix_agents, mode_contributions, p_of_observed_choice,
     probability_from_state, state_tensors,
 )
-import metrics as M  # noqa: E402
+from catie import metrics as M  # noqa: E402
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 plt.rcParams.update({"figure.dpi": 120, "font.size": 11})

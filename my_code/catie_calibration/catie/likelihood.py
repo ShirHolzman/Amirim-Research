@@ -2,7 +2,7 @@
 Vectorised CATIE likelihood over cached state tensors, for parameter fitting.
 
 Everything here operates on whole (n_subjects x n_trials) matrices loaded from
-build_cache.py, so a likelihood evaluation at a given (tau, eps, phi) costs a
+catie/cache.py, so a likelihood evaluation at a given (tau, eps, phi) costs a
 handful of numpy ops and no Python loop.
 
 THE ONE SUBTLETY IN THE k-MIXTURE. For a single k the choice probability is a
@@ -18,7 +18,7 @@ WHICH MIXING. `weighting="per_trial"` (default) is the sequential Bayesian model
 average the paper's numbers were produced with (verified against Fig S5 per schedule
 to the rounding floor). `"shipped_time_avg"` reproduces hetro.m:25 as shipped, which
 time-averages the weights; it exists only so the shipped code can be reproduced and
-must not be quoted as the published model. Same convention as catie_core.mix_agents.
+must not be quoted as the published model. Same convention as catie.core.mix_agents.
 
 Parameterisation for the optimiser: tau, eps, phi are all probabilities in (0,1),
 so they are optimised in logit space. This removes the need for bounded solvers,
@@ -29,12 +29,10 @@ boundary where the Hessian is undefined.
 from __future__ import annotations
 
 import pathlib
-import sys
 
 import numpy as np
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
-from catie_core import EPSILON, PHI, TAU  # noqa: E402  (published values)
+from .core import EPSILON, PHI, TAU   # published parameter values
 
 CACHE_DIR = pathlib.Path(__file__).parent.parent / "cache"
 TENSORS = ("H", "b", "c_prev", "s_prev", "sbar_prev", "g")
