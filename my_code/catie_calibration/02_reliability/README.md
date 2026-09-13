@@ -22,13 +22,14 @@ label-equivariant doubled set instead.
 
 ## 2. Main result: CATIE is overconfident by several percentage points, not a fraction of one
 
-`fig2_doubled_main.png`, 10 uniform bins, training: ECE = 0.144, MCE = 0.257,
+`fig2_doubled_main.png`, 10 uniform bins, training: ECE = 0.144, MCE = 0.207,
 Brier = 0.232, E[p] = 0.623, E[log p] = −0.673 (`doubled` row, `n_bins=10`,
 `strategy=uniform`). The curve sits inside the diagonal at both ends — bin 0
 (predicted 0.081, empirical 0.180, gap +0.100) and bin 9 (predicted 0.919, empirical
 0.820, gap −0.100) — the qualitative direction expected of an overconfident model. The
 **size** of the gap is larger than the "a few points" expected going in: individual
-bins reach a 21-point gap (bin 7: predicted 0.749, empirical 0.541), and the 10-bin ECE
+bins reach a 21-point gap (bin 7: predicted 0.749, empirical 0.542 — this bin is also
+MCE's worst-bin, |gap| = 0.207), and the 10-bin ECE
 (0.144, i.e. 14.4 points on average) is itself an order of magnitude above the
 competition's 0.001 margin on E[p]. This is the headline number for the report.
 

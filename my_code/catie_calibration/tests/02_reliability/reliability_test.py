@@ -59,12 +59,21 @@ N_SPLIT = {"training": N_TRAINING_SCORED, "eda": N_EDA_SCORED}
 
 # ── 1. p_alt1 round-trip ──────────────────────────────────────────────────────
 def test_p_alt1_round_trip():
+    """p1 recovered by load_flat (via where(y, pc, 1-pc)) matches P(alt 1) computed
+    a SECOND, independent way -- directly from the per-k mixture, never touching
+    the where(...) inversion `load_flat` itself uses. (An earlier version of this
+    test inverted pc with the same formula it was checking and was a tautology,
+    true for any pc including random noise -- caught by review, see
+    sub_plans/02_reliability.md Outcome.)"""
+    from catie.likelihood import p_alt1_single_k, mix_agents_3d
+
     cache = StateCache("training")
-    pc = p_choice_matrix(cache)
-    p1 = np.where(cache.y.astype(bool), pc, 1.0 - pc)
-    reconstructed = np.where(cache.y.astype(bool), p1, 1.0 - p1)
-    diff = np.abs(reconstructed - pc).max()
-    assert diff < 1e-12, f"p_alt1 round-trip max abs diff {diff} >= 1e-12"
+    Ps = np.stack([p_alt1_single_k(cache.st[k]) for k in cache.ks])
+    p1_direct = mix_agents_3d(Ps, cache.y)  # never calls p_choice_matrix
+
+    p1_recovered = R.load_flat("training")["p1"]
+    diff = np.abs(p1_direct[:, 1:].ravel() - p1_recovered).max()
+    assert diff < 1e-12, f"independent P(alt1) vs recovered p1: max diff {diff} >= 1e-12"
 
 
 # ── 2. anchor to the validated base ───────────────────────────────────────────
@@ -195,10 +204,19 @@ def test_strata_partition():
     counts = stacked.sum(axis=1)
     assert (counts > 0).all(), "an empty run-length stratum"
     assert counts.sum() == N_TRAINING_SCORED
-    min_per_bin = counts.min() / 10
-    if min_per_bin < 200:
-        print(f"   ! smallest run-length stratum has only {min_per_bin:.0f} rows/bin "
-              f"at 10 bins (< 200)")
+
+    # The actual per-BIN minimum from the 10-bin tables this stage plots -- not a
+    # per-stratum average (counts.min()/10), which cannot detect a single thin bin
+    # and previously could never cross the 200 threshold in practice (caught by
+    # review; see sub_plans/02_reliability.md Outcome). warnings.warn, not print,
+    # so this is visible in pytest's summary even on a passing run.
+    bins = pd.read_csv(BINS_CSV)
+    run_10bin = bins[(bins["diagram"].str.startswith("doubled_run")) & (bins["n_bins"] == 10)]
+    min_bin_n = int(run_10bin["n"].min())
+    if min_bin_n < 200:
+        import warnings
+        worst = run_10bin.loc[run_10bin["n"].idxmin(), ["diagram", "bin"]].to_dict()
+        warnings.warn(f"thinnest run-length bin has only {min_bin_n} rows at 10 bins: {worst}")
 
 
 # ── 8. CI sanity ───────────────────────────────────────────────────────────────
@@ -238,21 +256,61 @@ def test_bootstrap_is_deterministic():
 
 
 # ── 10. README fidelity ────────────────────────────────────────────────────────
+# Each README section is scoped to the exact (diagram, stratum, n_bins, strategy)
+# rows it is allowed to cite. A global "matches ANY cell anywhere" pool was measured
+# (by review) to false-accept ~73% of arbitrary numbers, since 1,953 cells are dense
+# enough that most values land within 5e-4 of some unrelated cell -- it let through
+# a stray, uncited "0.001" and a rounding slip ("0.541" for a 0.541741 cell) because
+# both happened to be near a DIFFERENT row's value. Scoping to the section's own
+# rows closes that: a number can only pass by matching what its own section is
+# actually about. See sub_plans/02_reliability.md Outcome.
+SECTION_SCOPE = {
+    "## 1.": [("baseline_biased", "all", 10, "uniform")],
+    "## 2.": [("doubled", "all", 10, "uniform")],
+    "## 3.": [("doubled", "all", n_bins, strategy) for n_bins, strategy in
+              [(10, "uniform"), (20, "uniform"), (50, "uniform"), (100, "uniform"),
+               (10, "quantile"), (20, "quantile")]],
+    "## 4.": [(f"doubled_run{lbl}", lbl, 10, "uniform")
+              for lbl in ("1", "2", "3-4", "5-9", "10+")],
+    "## 5.": [("doubled_eda", "all", 10, "uniform"),
+              ("doubled", "all", 10, "uniform")],  # section 5 cross-refs Training's own numbers
+}
+
+
 def test_readme_numbers_match_csv():
     if not README.exists():
         print("   ! README.md not written yet -- skipping (run again after step 6)")
         return
     text = README.read_text(encoding="utf-8")
-    numbers = [float(m.replace("−", "-")) for m in
-               re.findall(r"[-−]?\d+\.\d{3,}", text)]
     bins = pd.read_csv(BINS_CSV)
     summary = pd.read_csv(SUMMARY_CSV)
-    pool = np.concatenate([
-        bins[["lo", "hi", "predicted", "empirical", "gap", "emp_lo", "emp_hi"]].to_numpy().ravel(),
-        summary[["ece", "ece_lo", "ece_hi", "mce", "brier", "e_p", "e_log_p"]].to_numpy().ravel(),
-    ])
-    unmatched = [n for n in numbers if not np.any(np.abs(pool - n) < 5e-4)]
-    assert not unmatched, f"README numbers with no matching CSV value: {unmatched}"
+
+    sections = re.split(r"(?=^## )", text, flags=re.MULTILINE)
+    checked_any = False
+    for sec in sections:
+        scope = SECTION_SCOPE.get(sec[:5])
+        if scope is None:
+            continue
+        checked_any = True
+        numbers = [float(m.replace("−", "-")) for m in
+                   re.findall(r"[-−]?\d+\.\d{3,}", sec)]
+        pool = []
+        for diagram, stratum, n_bins, strategy in scope:
+            b = bins.query("diagram == @diagram and stratum == @stratum and "
+                           "n_bins == @n_bins and strategy == @strategy")
+            s = summary.query("diagram == @diagram and stratum == @stratum and "
+                              "n_bins == @n_bins and strategy == @strategy")
+            pool += b[["lo", "hi", "predicted", "empirical", "gap",
+                      "emp_lo", "emp_hi"]].to_numpy().ravel().tolist()
+            pool += s[["ece", "ece_lo", "ece_hi", "mce", "brier",
+                      "e_p", "e_log_p"]].to_numpy().ravel().tolist()
+        pool = np.array(pool)
+        unmatched = [n for n in numbers if not np.any(np.abs(pool - n) < 5e-4)]
+        assert not unmatched, (
+            f"README section {sec[:6]!r}: numbers with no matching row in its "
+            f"own scope {scope}: {unmatched}"
+        )
+    assert checked_any, "no README section matched SECTION_SCOPE -- headers renamed?"
 
 
 # ── runner ─────────────────────────────────────────────────────────────────────

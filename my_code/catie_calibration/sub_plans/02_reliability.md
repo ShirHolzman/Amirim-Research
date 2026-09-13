@@ -252,4 +252,52 @@ fixed:**
 
 **Verification:** all 10 planned checks pass (11 test functions — the plan's check 2
 was split into two functions). `python -m pytest tests -q` (whole project) still
-green. Not yet committed — awaiting approval.
+green.
+
+**Post-commit review (2026-09-13), Opus sub-agent, read-only, requested by the user.**
+Audited `reliability.py`, `figures.py`, the test suite, both CSVs, all 5 figures, and
+both READMEs against `sub_plans/02_reliability.md`. Verdict: no CRITICAL findings, no
+reported number or conclusion wrong (every recomputation matched to <1e-12 or exact).
+5 MAJOR findings, all in the verification layer or README precision, not the science:
+
+1. `test_p_alt1_round_trip` was a tautology (derived `p1` from `pc` then inverted it
+   with the identical formula — true for any input, never actually tested
+   `reliability.py`'s recovery).
+2. The README-fidelity test's "matches ANY CSV cell within 5e-4" rule had a measured
+   ~73% false-accept rate on arbitrary numbers, and in practice let through two real
+   errors: `## 2.`'s MCE was copy-pasted from `baseline_biased` (0.257) instead of
+   `doubled`'s own value (0.207), and bin 7's empirical was written as 0.541 against
+   a true cell of 0.541741 (rounds to 0.542).
+3. The doubled-diagram symmetry claim in this Outcome section is only exact at 10/50
+   uniform bins — CATIE has a real forecast atom at p=0.95 exactly, and half-open bin
+   edges break mirror symmetry at 20/100 bins (small n-mismatches, e.g. 494 vs 472).
+   Numeric impact on any reported ECE/E[p]/E[log p] is nil (confirmed), so no figure
+   or number changes; this note is here so the claim above is read as "at 10/50 bins",
+   not universally.
+4. Check 7's "<200 rows/bin" alarm computed a per-stratum AVERAGE (2,160), which could
+   never detect a single thin bin, and used `print`, which pytest swallows on a
+   passing test.
+5. Check 4's n-weighted-mean assertion only ran on `doubled`-family curves, where
+   symmetry makes it near-vacuous; it never ran on `baseline_biased`, the one curve
+   where it would catch a real binning bug (hand-verified correct there anyway).
+
+Also noted (not required to be fixed, kept as the honest explanation): the uniform-10
+vs quantile-10 ECE "unexplained coincidence" flagged above DOES have a real, checkable
+reason — both binnings share an edge at exactly 0.5 with sign-constant gaps per side,
+so both telescope algebraically to the same 2-bin ECE (agent verified: the 2-bin ECE
+computed by hand is 0.14356374299209901, bit-identical to both). "Unexplained" in the
+README/this Outcome should be read as "not chased further," not "inexplicable" — left
+as is rather than reworded, since it doesn't affect any reported number.
+
+**Fixes applied** for findings 1, 2, 4 (2, 3, 5 left as documentation-only, since they
+don't change any reported number): `test_p_alt1_round_trip` now derives P(alt 1) a
+second, independent way (`p_alt1_single_k` + `mix_agents_3d` directly, never through
+the `where(y, pc, 1-pc)` inversion) and compares the two. The README-fidelity test now
+scopes each section's numbers to only the CSV rows that section is actually about
+(`SECTION_SCOPE`), instead of the whole 1,953-cell pool — this immediately caught and
+led to fixing the two real README errors in finding 2 above. The strata-partition
+check now reads the true per-bin minimum from `reliability.csv` (230 rows,
+`doubled_run10+` bin 4 — above the 200 threshold, so correctly silent) via
+`warnings.warn` instead of a swallowed `print`. All 11 checks pass after the fixes;
+`02_reliability/README.md`'s two corrected numbers verified against
+`reliability_summary.csv`/`reliability.csv` directly.
